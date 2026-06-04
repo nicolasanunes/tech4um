@@ -1,0 +1,53 @@
+services:
+
+  tech4um-frontend:
+    build:
+      context: ./tech4um-frontend
+    container_name: tech4um-frontend
+    volumes:
+      - ./tech4um-frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - tech4um-backend
+
+  tech4um-backend:
+    build:
+      context: ./tech4um-backend
+    container_name: tech4um-backend
+    volumes:
+      - ./tech4um-backend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      tech4um-db:
+        condition: service_healthy
+
+  tech4um-db:
+    image: postgres:17-alpine
+    container_name: tech4um-db
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

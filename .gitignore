@@ -1,0 +1,15 @@
+# Variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Docker
+postgres_data/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
