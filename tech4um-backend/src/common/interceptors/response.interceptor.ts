@@ -32,9 +32,10 @@ interface PaginatedPayload<T> {
 }
 
 @Injectable()
-export class ResponseInterceptor<T>
-  implements NestInterceptor<T, ApiSuccessResponse<T>>
-{
+export class ResponseInterceptor<T> implements NestInterceptor<
+  T,
+  ApiSuccessResponse<T>
+> {
   constructor(private readonly reflector: Reflector) {}
 
   intercept(
@@ -76,7 +77,9 @@ export class ResponseInterceptor<T>
     );
   }
 
-  private isPaginatedPayload(value: unknown): value is PaginatedPayload<unknown> {
+  private isPaginatedPayload(
+    value: unknown,
+  ): value is PaginatedPayload<unknown> {
     if (typeof value !== 'object' || value === null) {
       return false;
     }

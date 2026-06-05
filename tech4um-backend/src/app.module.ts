@@ -7,6 +7,8 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { databaseConfig } from './config/database.config';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { ForumsModule } from './forums/forums.module';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -19,10 +21,11 @@ import { AuthModule } from './auth/auth.module';
     TypeOrmModule.forRoot(databaseConfig),
 
     UsersModule,
-    AuthModule
+    AuthModule,
+    ForumsModule,
+    MessagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {} 
- 
+export class AppModule {}

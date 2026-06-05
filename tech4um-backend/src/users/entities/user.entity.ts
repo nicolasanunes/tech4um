@@ -1,5 +1,9 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 
+import { Forum } from '../../forums/entities/forum.entity';
+import { ForumParticipant } from '../../forums/entities/forum-participant.entity';
+import { Message } from '../../messages/entities/message.entity';
+ 
 @Entity('users')
 export class User {
     @PrimaryGeneratedColumn('increment', { name: 'id',type: 'bigint' })
@@ -20,6 +24,21 @@ export class User {
     @CreateDateColumn({ name: 'created_at'})
     declare createdAt: Date;
 
-    @UpdateDateColumn({ name: 'updated_at'})
-    declare updatedAt: Date;
+    @OneToMany(
+    () => Forum,
+    (forum) => forum.creator,
+    )
+    declare forumsCreated: Forum[];
+
+    @OneToMany(
+    () => Message,
+    (message) => message.author,
+    ) 
+    declare messages: Message[];
+
+    @OneToMany(
+    () => ForumParticipant,
+    (participant) => participant.user,
+    )
+    declare participations: ForumParticipant[];
 }

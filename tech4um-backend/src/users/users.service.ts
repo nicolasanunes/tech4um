@@ -12,9 +12,9 @@ export class UsersService {
 
   constructor(
     @InjectRepository(User)
-    private readonly userRepository: Repository<User>, 
+    private readonly userRepository: Repository<User>,
   ) {}
- 
+
   async createUser(createUserDto: CreateUserDto): Promise<ListUserDto> {
     const hashedPassword = await bcrypt.hash(
       createUserDto.password,
@@ -24,7 +24,7 @@ export class UsersService {
     const user = this.userRepository.create({
       ...createUserDto,
       password: hashedPassword,
-    }); 
+    });
 
     let savedUser: User;
 
@@ -41,9 +41,12 @@ export class UsersService {
       const constraintName =
         driverError.constraint ?? driverError.driverError?.constraint ?? '';
 
-      if (errorCode === '23505' && constraintName.toLowerCase().includes('username')) {
+      if (
+        errorCode === '23505' &&
+        constraintName.toLowerCase().includes('username')
+      ) {
         throw new ConflictException('Usuario ja existe');
-      } 
+      }
 
       if (errorCode === '23505') {
         throw new ConflictException('Registro ja existente');
@@ -58,7 +61,7 @@ export class UsersService {
       avatarUrl: savedUser.avatarUrl,
     };
   }
- 
+
   async listUserByEmail(email: string): Promise<User | null> {
     return this.userRepository.findOne({
       where: { email },
@@ -70,4 +73,4 @@ export class UsersService {
       where: { username },
     });
   }
-} 
+}

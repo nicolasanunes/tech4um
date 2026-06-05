@@ -1,8 +1,4 @@
-import {
-	Injectable,
-	Logger,
-	UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dtos/login.dto';
 import { LoginResponseDto } from './dtos/login-response.dto';
@@ -11,105 +7,101 @@ import { ListUserDto } from '../users/dtos/list-user.dto';
 import { UsersService } from '../users/users.service';
 import { Response } from 'express';
 import { User } from '../users/entities/user.entity';
-import {
-	setAccessTokenCookie,
-	setRefreshTokenCookie,
-} from '../utils/cookies';
+import { setAccessTokenCookie, setRefreshTokenCookie } from '../utils/cookies';
 import { validatePassword } from '../utils/password';
 
 interface AuthTokens {
-	accessToken: string;
-	refreshToken: string;
+  accessToken: string;
+  refreshToken: string;
 }
 
 @Injectable()
 export class AuthService {
-	private readonly logger = new Logger(AuthService.name);
-	private static readonly ACCESS_TOKEN_EXPIRES_IN = '15m';
-	private static readonly REFRESH_TOKEN_EXPIRES_IN = '7d';
+  private readonly logger = new Logger(AuthService.name);
+  private static readonly ACCESS_TOKEN_EXPIRES_IN = '15m';
+  private static readonly REFRESH_TOKEN_EXPIRES_IN = '7d';
 
-	constructor(
-		private readonly usersService: UsersService,
-		private readonly jwtService: JwtService,
-	) {}
- 
-	async login(loginDto: LoginDto, response: Response): Promise<LoginResponseDto> {
-		this.logger.log(`Tentativa de login: ${loginDto.username}`);
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
+  ) {}
 
-		const user = await this.usersService
-			.listUserByUsername(loginDto.username)
-			.catch(() => null);
+  async login(
+    loginDto: LoginDto,
+    response: Response,
+  ): Promise<LoginResponseDto> {
+    this.logger.log(`Tentativa de login: ${loginDto.username}`);
 
-		if (!user) {
-			this.logger.warn(`Login falhou para: ${loginDto.username}`);
-			throw new UnauthorizedException('Credenciais invalidas');
-		}
+    const user = await this.usersService
+      .listUserByUsername(loginDto.username)
+      .catch(() => null);
 
-		const passwordMatches = await validatePassword(
-			loginDto.password,
-			user.password,
-		);
+    if (!user) {
+      this.logger.warn(`Login falhou para: ${loginDto.username}`);
+      throw new UnauthorizedException('Credenciais invalidas');
+    }
 
-		if (!passwordMatches) {
-			this.logger.warn(`Login falhou para: ${loginDto.username}`);
-			throw new UnauthorizedException('Credenciais invalidas');
-		}
+    const passwordMatches = await validatePassword(
+      loginDto.password,
+      user.password,
+    );
 
-		const tokens = await this.createAuthTokens(user);
-		setAccessTokenCookie(response, tokens.accessToken);
-		setRefreshTokenCookie(response, tokens.refreshToken);
-		this.logger.log(`Login bem-sucedido: userId=${user.id} username=${user.username}`);
- 
-        return {
-            user: {
-                username: user.username,
-                email: user.email,
-                avatarUrl: user.avatarUrl,
-            }
-        }
-	}
+    if (!passwordMatches) {
+      this.logger.warn(`Login falhou para: ${loginDto.username}`);
+      throw new UnauthorizedException('Credenciais invalidas');
+    }
 
-	async logout(response: Response): Promise<null> {
-		response.clearCookie(
-			'accessToken',
-			{
-				httpOnly: true,
-				secure: process.env.NODE_ENV === 'production',
-				sameSite: 'strict' as const,
-				path: '/',
-			},
-		);
+    const tokens = await this.createAuthTokens(user);
+    setAccessTokenCookie(response, tokens.accessToken);
+    setRefreshTokenCookie(response, tokens.refreshToken);
+    this.logger.log(
+      `Login bem-sucedido: userId=${user.id} username=${user.username}`,
+    );
 
-		response.clearCookie(
-			'refreshToken',
-			{
-				httpOnly: true,
-				secure: process.env.NODE_ENV === 'production',
-				sameSite: 'strict' as const,
-				path: '/',
-			},
-		);
+    return {
+      user: {
+        username: user.username,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+      },
+    };
+  }
 
-		return null;
-	}
+  async logout(response: Response): Promise<null> {
+    response.clearCookie('accessToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict' as const,
+      path: '/',
+    });
 
-	private async createAuthTokens(user: User): Promise<AuthTokens> {
-		const payload: LoginPayloadDto = {
-			id: user.id,
-			username: user.username,
-			email: user.email,
-		};
+    response.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict' as const,
+      path: '/',
+    });
 
-		const accessToken = await this.jwtService.signAsync(payload, {
-			secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
-			expiresIn: AuthService.ACCESS_TOKEN_EXPIRES_IN,
-		});
+    return null;
+  }
 
-		const refreshToken = await this.jwtService.signAsync(payload, {
-			secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
-			expiresIn: AuthService.REFRESH_TOKEN_EXPIRES_IN,
-		});
+  private async createAuthTokens(user: User): Promise<AuthTokens> {
+    const payload: LoginPayloadDto = {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+    };
 
-		return { accessToken, refreshToken };
-	}
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
+      expiresIn: AuthService.ACCESS_TOKEN_EXPIRES_IN,
+    });
+
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
+      expiresIn: AuthService.REFRESH_TOKEN_EXPIRES_IN,
+    });
+
+    return { accessToken, refreshToken };
+  }
 }
