@@ -42,7 +42,7 @@ export class Forum {
   declare participants: ForumParticipant[];
 
   @Column({
-    default: 0,
+    default: 1,
   })
   declare participantsCount: number;
 

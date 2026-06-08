@@ -1,11 +1,16 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import NavbarMenu from './components/NavbarMenu.vue';
+</script>
 
 <template>
-  <h1>You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <div class="flex flex-col h-screen">
+      <header>
+        <NavbarMenu />
+      </header>
+      <main class="flex-1 px-4 py-4 md:px-8 lg:px-16 xl:px-32 2xl:px-64 bg-background-color">
+        <RouterView />
+      </main>
+  </div>
 </template>
 
 <style scoped></style>

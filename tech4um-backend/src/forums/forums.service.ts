@@ -28,26 +28,52 @@ export class ForumsService {
 		createForumDto: CreateForumDto,
 		creatorId: number,
 	): Promise<CreateForumResponseDto> {
-		const creator = await this.usersRepository.findOne({
-			where: { id: creatorId },
-		});
-
-		if (!creator) {
-			throw new NotFoundException('Usuario criador nao encontrado');
-		}
-
-		const forum = this.forumsRepository.create({
-			name: createForumDto.name,
-			description: createForumDto.description,
-			creator,
-			participantsCount: 1,
-		});
-
-		let savedForum: Forum;
-
 		try {
-			savedForum = await this.forumsRepository.save(forum);
+			const result = await this.forumsRepository.manager.transaction(
+				async (manager) => {
+					const usersRepository = manager.getRepository(User);
+					const forumsRepository = manager.getRepository(Forum);
+					const participantsRepository = manager.getRepository(ForumParticipant);
+
+					const creator = await usersRepository.findOne({
+						where: { id: creatorId },
+					});
+
+					if (!creator) {
+						throw new NotFoundException('Usuario criador nao encontrado');
+					}
+
+					const forum = forumsRepository.create({
+						name: createForumDto.name,
+						description: createForumDto.description,
+						creator,
+						participantsCount: 1,
+					});
+
+					const savedForum = await forumsRepository.save(forum);
+
+					const participant = participantsRepository.create({
+						forum: savedForum,
+						user: creator,
+						lastInteraction: new Date(),
+					});
+
+					await participantsRepository.save(participant);
+
+					return {
+						name: savedForum.name,
+						description: savedForum.description ?? null,
+						creatorName: creator.username,
+					};
+				},
+			);
+
+			return result;
 		} catch (error) {
+			if (error instanceof NotFoundException) {
+				throw error;
+			}
+
 			const driverError = error as {
 				code?: string;
 				driverError?: { code?: string; constraint?: string };
@@ -68,20 +94,6 @@ export class ForumsService {
 
 			throw error;
 		}
-
-		const participant = this.participantsRepository.create({
-			forum: savedForum,
-			user: creator,
-			lastInteraction: new Date(),
-		});
-
-		await this.participantsRepository.save(participant);
-
-		return {
-			name: savedForum.name,
-			description: savedForum.description ?? null,
-			creatorName: creator.username,
-		};
 	}
 
 	async listAllForums(query: ListForumsQueryDto): Promise<{
@@ -94,77 +106,88 @@ export class ForumsService {
 		const pageSize = Math.max(1, Math.min(Number(query.pageSize ?? 10), 100));
 		const skip = (page - 1) * pageSize;
 
-		const baseQuery = this.forumsRepository
-			.createQueryBuilder('forum')
-			.leftJoin('forum.creator', 'creator');
+		const conditions: string[] = [];
+		const params: unknown[] = [];
+		let p = 1;
 
-		if (query.search) {
-			baseQuery.andWhere(
-				'(forum.name ILIKE :search OR forum.description ILIKE :search OR creator.username ILIKE :search)',
-				{ search: `%${query.search}%` },
+		if (query.search?.trim()) {
+			conditions.push(
+				`(f.name ILIKE $${p} OR f.description ILIKE $${p} OR c.username ILIKE $${p})`,
 			);
+			params.push(`%${query.search.trim()}%`);
+			p++;
 		}
 
-		if (query.name) {
-			baseQuery.andWhere('forum.name ILIKE :name', {
-				name: `%${query.name}%`,
-			});
+		if (query.name?.trim()) {
+			conditions.push(`f.name ILIKE $${p}`);
+			params.push(`%${query.name.trim()}%`);
+			p++;
 		}
 
-		if (query.creatorName) {
-			baseQuery.andWhere('creator.username ILIKE :creatorName', {
-				creatorName: `%${query.creatorName}%`,
-			});
+		if (query.creatorName?.trim()) {
+			conditions.push(`c.username ILIKE $${p}`);
+			params.push(`%${query.creatorName.trim()}%`);
+			p++;
 		}
 
-		const total = await baseQuery.getCount();
+		const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-		const rows = await baseQuery
-			.clone()
-			.select('forum.name', 'name')
-			.addSelect('forum.description', 'description')
-			.addSelect('creator.username', 'creatorName')
-			.addSelect(
-				(subQuery) =>
-					subQuery
-						.select('COUNT(message.id)')
-						.from('messages', 'message')
-						.where('message.forumId = forum.id'),
-				'messagesCount',
-			)
-			.addSelect(
-				(subQuery) =>
-					subQuery
-						.select('COUNT(participant.id)')
-						.from('forum_participants', 'participant')
-						.where('participant.forumId = forum.id'),
-				'participantsCount',
-			)
-			.orderBy('forum.createdAt', 'DESC')
-			.skip(skip)
-			.take(pageSize)
-			.getRawMany<{
-				name: string;
-				description: string | null;
-				creatorName: string;
-				messagesCount: string;
-				participantsCount: string;
-			}>();
+		const manager = this.forumsRepository.manager;
+
+		const countResult = await manager.query<[{ total: string }]>(
+			`SELECT COUNT(DISTINCT f.id)::int AS total
+			 FROM forums f
+			 LEFT JOIN users c ON c.id = f."creatorId"
+			 ${where}`,
+			params,
+		);
+
+		const total = Number(countResult[0]?.total ?? 0);
+
+		const rows = await manager.query<{
+			id: string;
+			name: string;
+			description: string | null;
+			creatorName: string;
+			lastCommentAuthorName: string | null;
+			messagesCount: string;
+			participantsCount: string;
+		}[]>(
+			`SELECT
+				f.id                        AS id,
+				f.name                      AS name,
+				f.description               AS description,
+				c.username                  AS "creatorName",
+				last_msg.username           AS "lastCommentAuthorName",
+				(SELECT COUNT(*) FROM messages m   WHERE m."forumId" = f.id)::int AS "messagesCount",
+				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount"
+			 FROM forums f
+			 LEFT JOIN users c ON c.id = f."creatorId"
+			 LEFT JOIN LATERAL (
+				SELECT u.username
+				FROM messages lm
+				JOIN users u ON u.id = lm."authorId"
+				WHERE lm."forumId" = f.id
+				ORDER BY lm."createdAt" DESC, lm.id DESC
+				LIMIT 1
+			 ) last_msg ON true
+			 ${where}
+			 ORDER BY f."createdAt" DESC
+			 LIMIT $${p} OFFSET $${p + 1}`,
+			[...params, pageSize, skip],
+		);
 
 		const items: ListForumItemDto[] = rows.map((row) => ({
+			id: Number(row.id),
 			name: row.name,
 			description: row.description,
 			creatorName: row.creatorName,
+			lastCommentAuthorName: row.lastCommentAuthorName ?? row.creatorName,
 			messagesCount: Number(row.messagesCount ?? 0),
 			participantsCount: Number(row.participantsCount ?? 0),
 		}));
 
-		return {
-			items,
-			page,
-			pageSize,
-			total,
-		};
+		return { items, page, pageSize, total };
 	}
 
 	async listForumById(id: number): Promise<ListForumByIdResponseDto> {
@@ -238,6 +261,7 @@ export class ForumsService {
 		if (existingParticipant) {
 			existingParticipant.lastInteraction = new Date();
 			await this.participantsRepository.save(existingParticipant);
+			await this.syncForumParticipantsCount(forumId);
 			return;
 		}
 
@@ -248,9 +272,20 @@ export class ForumsService {
 		});
 
 		await this.participantsRepository.save(participant);
+		await this.syncForumParticipantsCount(forumId);
+	}
 
-		forum.participantsCount += 1;
-		await this.forumsRepository.save(forum);
+	private async syncForumParticipantsCount(forumId: number): Promise<void> {
+		const participantsTotal = await this.participantsRepository.count({
+			where: {
+				forum: { id: forumId },
+			},
+		});
+
+		await this.forumsRepository.update(
+			{ id: forumId },
+			{ participantsCount: participantsTotal },
+		);
 	}
 
 	async createPublicMessage(

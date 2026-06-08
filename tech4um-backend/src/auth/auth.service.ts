@@ -5,7 +5,7 @@ import { LoginResponseDto } from './dtos/login-response.dto';
 import { LoginPayloadDto } from './dtos/login-payload.dto';
 import { ListUserDto } from '../users/dtos/list-user.dto';
 import { UsersService } from '../users/users.service';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { User } from '../users/entities/user.entity';
 import { setAccessTokenCookie, setRefreshTokenCookie } from '../utils/cookies';
 import { validatePassword } from '../utils/password';
@@ -81,8 +81,59 @@ export class AuthService {
       sameSite: 'strict' as const,
       path: '/',
     });
-
+ 
     return null;
+  }
+
+  async me(userId: number): Promise<LoginResponseDto> {
+    const user = await this.usersService.listUserById(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('Usuario nao autenticado');
+    }
+
+    return {
+      user: {
+        username: user.username,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+      },
+    };
+  }
+
+  async refresh(
+    request: Request,
+    response: Response,
+  ): Promise<LoginResponseDto> {
+    const refreshToken = request.cookies?.refreshToken;
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('Sessao expirada');
+    }
+
+    const payload = await this.verifyToken(refreshToken).catch(() => null);
+
+    if (!payload) {
+      throw new UnauthorizedException('Sessao expirada');
+    }
+
+    const user = await this.usersService.listUserById(Number(payload.id));
+
+    if (!user) {
+      throw new UnauthorizedException('Usuario nao autenticado');
+    }
+
+    const tokens = await this.createAuthTokens(user);
+    setAccessTokenCookie(response, tokens.accessToken);
+    setRefreshTokenCookie(response, tokens.refreshToken);
+
+    return {
+      user: {
+        username: user.username,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+      },
+    };
   }
 
   private async createAuthTokens(user: User): Promise<AuthTokens> {
@@ -103,5 +154,11 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken };
+  }
+
+  private async verifyToken(token: string): Promise<LoginPayloadDto> {
+    return this.jwtService.verifyAsync<LoginPayloadDto>(token, {
+      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
+    });
   }
 }
