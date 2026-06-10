@@ -12,17 +12,19 @@ import { Server, Socket } from 'socket.io';
 import { ForumsService } from './forums.service';
 import { LoginPayloadDto } from '../auth/dtos/login-payload.dto';
 
-interface JoinForumPayload {
+interface JoinForumPayload { 
   forumId: number;
 }
-
+ 
 interface SendMessagePayload {
   forumId: number;
-  text: string;
+  text?: string;
+  imageUrl?: string;
 }
 
 @WebSocketGateway({
   namespace: 'chat',
+  maxHttpBufferSize: 8 * 1024 * 1024,
   cors: {
     origin: process.env.FRONTEND_URL ?? true,
     credentials: true,
@@ -66,7 +68,7 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (forumId) {
       this.socketRoom.delete(client.id);
-      this.emitOnlineParticipants(forumId);
+      await this.emitOnlineParticipants(forumId);
     }
 
     this.socketUsers.delete(client.id);
@@ -97,15 +99,21 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.emitOnlineParticipants(previousForumId);
     }
 
-    await this.forumsService.ensureForumParticipant(forumId, Number(user.id));
+    try {
+      await this.forumsService.ensureForumParticipant(forumId, Number(user.id));
 
-    client.join(this.getForumRoom(forumId));
-    this.socketRoom.set(client.id, forumId);
+      client.join(this.getForumRoom(forumId));
+      this.socketRoom.set(client.id, forumId);
 
-    const forumState = await this.forumsService.listForumById(forumId);
-    client.emit('forum_state', forumState);
+      const forumState = await this.forumsService.listForumById(forumId);
+      client.emit('forum_state', forumState);
 
-    this.emitOnlineParticipants(forumId);
+      await this.emitOnlineParticipants(forumId);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Falha ao entrar no forum';
+      client.emit('chat_error', { message });
+    }
   }
 
   @SubscribeMessage('leave_forum')
@@ -126,7 +134,7 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.socketRoom.delete(client.id);
     }
 
-    this.emitOnlineParticipants(forumId);
+    await this.emitOnlineParticipants(forumId);
   }
 
   @SubscribeMessage('send_message')
@@ -143,28 +151,47 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const forumId = Number(payload?.forumId);
     const text = `${payload?.text ?? ''}`.trim();
+    const imageUrl = `${payload?.imageUrl ?? ''}`.trim();
 
-    if (!Number.isFinite(forumId) || forumId <= 0 || !text) {
+    if (
+      !Number.isFinite(forumId) ||
+      forumId <= 0 ||
+      (!text && !imageUrl)
+    ) {
       client.emit('chat_error', { message: 'Mensagem invalida' });
       return;
     }
 
-    await this.forumsService.ensureForumParticipant(forumId, Number(user.id));
+    if (imageUrl && !this.isValidImageDataUrl(imageUrl)) {
+      client.emit('chat_error', { message: 'Imagem invalida ou muito grande' });
+      return;
+    }
 
-    const message = await this.forumsService.createPublicMessage(
-      forumId,
-      Number(user.id),
-      text,
-    );
+    try {
+      await this.forumsService.ensureForumParticipant(forumId, Number(user.id));
 
-    this.server.to(this.getForumRoom(forumId)).emit('forum_message_created', message);
+      const message = await this.forumsService.createPublicMessage(
+        forumId,
+        Number(user.id),
+        text,
+        imageUrl || null,
+      );
+
+      this.server
+        .to(this.getForumRoom(forumId))
+        .emit('forum_message_created', message);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Falha ao enviar mensagem';
+      client.emit('chat_error', { message });
+    }
   }
 
   @SubscribeMessage('typing_start')
-  typingStart(
+  async typingStart(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinForumPayload,
-  ): void {
+  ): Promise<void> {
     const user = this.socketUsers.get(client.id);
     const forumId = Number(payload?.forumId);
 
@@ -172,16 +199,21 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const username = await this.resolveUsername(user);
+    if (!username) {
+      return;
+    }
+
     client
       .to(this.getForumRoom(forumId))
-      .emit('typing_start', { forumId, username: user.username });
+      .emit('typing_start', { forumId, username });
   }
 
   @SubscribeMessage('typing_stop')
-  typingStop(
+  async typingStop(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinForumPayload,
-  ): void {
+  ): Promise<void> {
     const user = this.socketUsers.get(client.id);
     const forumId = Number(payload?.forumId);
 
@@ -189,13 +221,33 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const username = await this.resolveUsername(user);
+    if (!username) {
+      return;
+    }
+
     client
       .to(this.getForumRoom(forumId))
-      .emit('typing_stop', { forumId, username: user.username });
+      .emit('typing_stop', { forumId, username });
   }
 
-  private emitOnlineParticipants(forumId: number): void {
-    const onlineUsers = new Map<string, string>();
+  private async resolveUsername(user: LoginPayloadDto): Promise<string | null> {
+    if (user.username?.trim()) {
+      return user.username.trim();
+    }
+
+    const userId = Number(user.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return null;
+    }
+
+    const users = await this.forumsService.listUsersBasicByIds([userId]);
+    const username = users[0]?.username?.trim();
+    return username || null;
+  }
+
+  private async emitOnlineParticipants(forumId: number): Promise<void> {
+    const onlineUserIds = new Set<number>();
 
     for (const [socketId, roomForumId] of this.socketRoom.entries()) {
       if (roomForumId !== forumId) {
@@ -207,15 +259,16 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         continue;
       }
 
-      onlineUsers.set(String(user.id), user.username);
+      onlineUserIds.add(Number(user.id));
     }
+
+    const users = await this.forumsService.listUsersBasicByIds(
+      Array.from(onlineUserIds),
+    );
 
     this.server.to(this.getForumRoom(forumId)).emit('participants_online', {
       forumId,
-      users: Array.from(onlineUsers.entries()).map(([id, username]) => ({
-        id: Number(id),
-        username,
-      })),
+      users,
     });
   }
 
@@ -241,4 +294,25 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     return null;
   }
-}
+
+  private isValidImageDataUrl(value: string): boolean {
+    if (!value.startsWith('data:image/')) {
+      return false;
+    }
+
+    const commaIndex = value.indexOf(',');
+    if (commaIndex < 0) {
+      return false;
+    }
+
+    const metadata = value.slice(0, commaIndex).toLowerCase();
+    if (!metadata.includes(';base64')) {
+      return false;
+    }
+
+    const base64 = value.slice(commaIndex + 1);
+    const estimatedBytes = Math.floor((base64.length * 3) / 4);
+
+    return estimatedBytes <= 5 * 1024 * 1024;
+  }
+} 

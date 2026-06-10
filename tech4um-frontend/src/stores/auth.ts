@@ -35,6 +35,7 @@ type LoginApiResponse = ApiSuccessResponse<{ user: AuthUser }>;
 export const useAuthStore = defineStore('auth', () => {
 	const user = ref<AuthUser | null>(null);
 	const isLoading = ref(false);
+	const hasRestoredSession = ref(false);
 	const errorMessage = ref<string | null>(null);
 
 	const isAuthenticated = computed(() => user.value !== null);
@@ -129,8 +130,17 @@ export const useAuthStore = defineStore('auth', () => {
 		} catch {
 			user.value = null;
 		} finally {
+			hasRestoredSession.value = true;
 			isLoading.value = false;
 		}
+	}
+
+	async function ensureSessionRestored(): Promise<void> {
+		if (hasRestoredSession.value) {
+			return;
+		}
+
+		await restoreSession();
 	}
 
 	function clearAuthError(): void {
@@ -140,11 +150,13 @@ export const useAuthStore = defineStore('auth', () => {
 	return {
 		user,
 		isLoading,
+		hasRestoredSession,
 		errorMessage,
 		isAuthenticated,
 		login,
 		logout,
 		restoreSession,
+		ensureSessionRestored,
 		clearAuthError,
 	};
 });

@@ -10,6 +10,10 @@ const router = createRouter({
       component: () => import('@/views/ForumsView.vue'),
     },
     {
+      path: '/',
+      redirect: '/forums',
+    },
+    {
       path: '/forums/:id',
       name: 'forum',
       component: () => import('@/views/ForumView.vue'),
@@ -18,10 +22,11 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (!to.meta.requiresAuth) return true
 
   const authStore = useAuthStore()
+  await authStore.ensureSessionRestored()
 
   if (!authStore.isAuthenticated) {
     return { name: 'forums' }

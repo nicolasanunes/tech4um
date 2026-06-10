@@ -9,13 +9,13 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ForumsModule } from './forums/forums.module';
 import { MessagesModule } from './messages/messages.module';
-
+ 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-
+ 
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
 
     TypeOrmModule.forRoot(databaseConfig),

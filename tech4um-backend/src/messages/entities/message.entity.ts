@@ -32,6 +32,13 @@ export class Message {
     })
     declare text: string;
 
+    @Column({
+    name: 'image_url',
+    type: 'text',
+    nullable: true,
+    })
+    declare imageUrl: string | null;
+
     @CreateDateColumn()
     declare createdAt: Date;
 }

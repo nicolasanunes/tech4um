@@ -11,7 +11,7 @@ import { CreateForumResponseDto } from './dtos/create-forum-response.dto';
 import { ListForumByIdResponseDto } from './dtos/list-forum-by-id-response.dto';
 import { Message } from '../messages/entities/message.entity';
 
-@Injectable()
+@Injectable() 
 export class ForumsService {
 	constructor(
 		@InjectRepository(Forum)
@@ -207,10 +207,15 @@ export class ForumsService {
 		if (!forum) {
 			throw new NotFoundException('Forum nao encontrado');
 		}
-
+ 
 		const participants = forum.participants
-			.map((participant) => participant.user.username)
-			.filter((value, index, self) => self.indexOf(value) === index);
+			.slice()
+			.sort((a, b) => {
+				const aTime = a.lastInteraction?.getTime() ?? a.firstInteraction.getTime();
+				const bTime = b.lastInteraction?.getTime() ?? b.firstInteraction.getTime();
+				return bTime - aTime;
+			})
+			.map((participant) => participant.user.username);
 
 		const messages = forum.messages
 			.slice()
@@ -218,16 +223,107 @@ export class ForumsService {
 			.map((message) => ({
 				id: message.id,
 				text: message.text,
+				imageUrl: message.imageUrl ?? null,
+				authorId: message.author.id,
 				authorName: message.author.username,
+				authorAvatarUrl: message.author.avatarUrl ?? null,
 				createdAt: message.createdAt,
 			}));
 
 		return {
+			id: forum.id,
 			name: forum.name,
 			description: forum.description ?? null,
+			creatorName: forum.creator.username,
 			participants,
 			messages,
 		};
+	}
+
+	async listForumSidebar(
+		forumId: number,
+		count = 5,
+	): Promise<ListForumItemDto[]> {
+		const manager = this.forumsRepository.manager;
+		const safeCount = Math.max(0, Math.min(Number(count ?? 5), 20));
+
+		const currentRows = await manager.query<{
+			id: string;
+			name: string;
+			description: string | null;
+			creatorName: string;
+			lastCommentAuthorName: string | null;
+			messagesCount: string;
+			participantsCount: string;
+		}[]>(
+			`SELECT
+				f.id                        AS id,
+				f.name                      AS name,
+				f.description               AS description,
+				c.username                  AS "creatorName",
+				last_msg.username           AS "lastCommentAuthorName",
+				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id)::int AS "messagesCount",
+				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount"
+			 FROM forums f
+			 LEFT JOIN users c ON c.id = f."creatorId"
+			 LEFT JOIN LATERAL (
+				SELECT u.username
+				FROM messages lm
+				JOIN users u ON u.id = lm."authorId"
+				WHERE lm."forumId" = f.id
+				ORDER BY lm."createdAt" DESC, lm.id DESC
+				LIMIT 1
+			 ) last_msg ON true
+			 WHERE f.id = $1
+			 LIMIT 1`,
+			[forumId],
+		);
+
+		if (!currentRows.length) {
+			throw new NotFoundException('Forum nao encontrado');
+		}
+
+		if (safeCount === 0) {
+			return [this.mapForumItemRow(currentRows[0])];
+		}
+
+		const randomRows = await manager.query<{
+			id: string;
+			name: string;
+			description: string | null;
+			creatorName: string;
+			lastCommentAuthorName: string | null;
+			messagesCount: string;
+			participantsCount: string;
+		}[]>(
+			`SELECT
+				f.id                        AS id,
+				f.name                      AS name,
+				f.description               AS description,
+				c.username                  AS "creatorName",
+				last_msg.username           AS "lastCommentAuthorName",
+				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id)::int AS "messagesCount",
+				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount"
+			 FROM forums f
+			 LEFT JOIN users c ON c.id = f."creatorId"
+			 LEFT JOIN LATERAL (
+				SELECT u.username
+				FROM messages lm
+				JOIN users u ON u.id = lm."authorId"
+				WHERE lm."forumId" = f.id
+				ORDER BY lm."createdAt" DESC, lm.id DESC
+				LIMIT 1
+			 ) last_msg ON true
+			 WHERE f.id <> $1
+			 ORDER BY RANDOM()
+			 LIMIT $2`,
+			[forumId, safeCount],
+		);
+
+		return [
+			this.mapForumItemRow(currentRows[0]),
+			...randomRows.map((row) => this.mapForumItemRow(row)),
+		];
 	}
 
 	async ensureForumParticipant(forumId: number, userId: number): Promise<void> {
@@ -292,7 +388,16 @@ export class ForumsService {
 		forumId: number,
 		userId: number,
 		text: string,
-	): Promise<{ id: number; text: string; authorName: string; createdAt: Date }> {
+		imageUrl?: string | null,
+	): Promise<{
+		id: number;
+		text: string;
+		imageUrl: string | null;
+		authorId: number;
+		authorName: string;
+		authorAvatarUrl: string | null;
+		createdAt: Date;
+	}> {
 		const forum = await this.forumsRepository.findOne({
 			where: { id: forumId },
 		});
@@ -309,10 +414,18 @@ export class ForumsService {
 			throw new NotFoundException('Usuario nao encontrado');
 		}
 
+		const normalizedText = `${text ?? ''}`.trim();
+		const normalizedImageUrl = `${imageUrl ?? ''}`.trim() || null;
+
+		if (!normalizedText && !normalizedImageUrl) {
+			throw new NotFoundException('Mensagem invalida');
+		}
+
 		const message = this.messagesRepository.create({
 			forum,
 			author: user,
-			text,
+			text: normalizedText,
+			imageUrl: normalizedImageUrl,
 		});
 
 		const savedMessage = await this.messagesRepository.save(message);
@@ -323,8 +436,49 @@ export class ForumsService {
 		return {
 			id: savedMessage.id,
 			text: savedMessage.text,
+			imageUrl: savedMessage.imageUrl ?? null,
+			authorId: user.id,
 			authorName: user.username,
+			authorAvatarUrl: user.avatarUrl ?? null,
 			createdAt: savedMessage.createdAt,
 		};
+	}
+
+	private mapForumItemRow(row: {
+		id: string;
+		name: string;
+		description: string | null;
+		creatorName: string;
+		lastCommentAuthorName: string | null;
+		messagesCount: string;
+		participantsCount: string;
+	}): ListForumItemDto {
+		return {
+			id: Number(row.id),
+			name: row.name,
+			description: row.description,
+			creatorName: row.creatorName,
+			lastCommentAuthorName: row.lastCommentAuthorName ?? row.creatorName,
+			messagesCount: Number(row.messagesCount ?? 0),
+			participantsCount: Number(row.participantsCount ?? 0),
+		};
+	}
+
+	async listUsersBasicByIds(
+		ids: number[],
+	): Promise<Array<{ id: number; username: string; avatarUrl: string | null }>> {
+		if (!ids.length) {
+			return [];
+		}
+
+		const users = await this.usersRepository.findBy(
+			ids.map((id) => ({ id })),
+		);
+
+		return users.map((user) => ({
+			id: user.id,
+			username: user.username,
+			avatarUrl: user.avatarUrl ?? null,
+		}));
 	}
 }
