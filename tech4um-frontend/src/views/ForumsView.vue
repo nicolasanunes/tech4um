@@ -16,7 +16,16 @@ interface ForumItem {
   messagesCount: number
   participantsCount: number
   lastCommentAuthorName: string | null
+  createdAt: string | Date
 }
+
+type ForumSortOption =
+  | 'date_desc'
+  | 'date_asc'
+  | 'messages_desc'
+  | 'messages_asc'
+  | 'participants_desc'
+  | 'participants_asc'
 
 interface CreateForumPayload {
   name: string
@@ -53,6 +62,7 @@ const authModalStore = useAuthModalStore()
 const PAGE_SIZE = 10
 
 const forums = ref<ForumItem[]>([])
+const sortOption = ref<ForumSortOption>('date_desc')
 const isLoadingForums = ref(false)
 const forumsErrorMessage = ref<string | null>(null)
 const searchTerm = ref('')
@@ -80,6 +90,11 @@ watch(searchTerm, (newVal) => {
   }, 2000)
 })
 
+watch(sortOption, async () => {
+  currentPage.value = 1
+  await listAllForums(searchTerm.value, 1)
+})
+
 function getApiErrorMessage(data: unknown, fallback: string): string {
   if (typeof data === 'object' && data !== null && 'message' in data) {
     const message = (data as { message?: unknown }).message
@@ -105,6 +120,8 @@ async function listAllForums(search?: string, page = currentPage.value): Promise
     if (search?.trim()) {
       query.set('search', search.trim())
     }
+
+    query.set('sort', sortOption.value)
 
     const response = await apiFetch(`/forums?${query.toString()}`, {
       method: 'GET',
@@ -324,6 +341,19 @@ watch(
         </Button>
       </form>
     </div>
+    <div class="w-full max-w-[18rem]">
+      <select
+        v-model="sortOption"
+        class="h-10 w-full rounded-md border border-input bg-transparent cursor-pointer px-3 text-sm text-text-color-54 outline-none focus:ring-2 focus:ring-primary-dark-color cursor-pointer"
+      >
+        <option class="hover:bg-primary-default-color cursor-pointer" value="date_desc">Data: mais recente</option>
+        <option value="date_asc">Data: mais antigo</option>
+        <option value="messages_desc">Popularidade: mais mensagens</option>
+        <option value="messages_asc">Popularidade: menos mensagens</option>
+        <option value="participants_desc">Usuários ativos: mais usuários</option>
+        <option value="participants_asc">Usuários ativos: menos usuários</option>
+      </select>
+    </div>
     <div>
       <Button
         class="h-10 bg-primary-dark-color cursor-pointer hover:bg-primary-default-color"
@@ -346,7 +376,7 @@ watch(
         :ref="(element) => setForumCardRef(forum.id, element)"
         :class="[
             'rounded-xl border border-border bg-background-color p-5 shadow-md cursor-pointer transition-colors hover:bg-white/50',
-            forum.messagesCount >= 1 ? 'md:col-span-2' : 'md:col-span-1',
+            forum.messagesCount >= 10 ? 'md:col-span-2' : 'md:col-span-1',
         ]"
         :style="getForumCardStyle(forum.id)"
         @click="openForum(forum.id)"
@@ -354,7 +384,7 @@ watch(
         <div class="mb-3 flex items-center justify-between gap-3">
           <div class="min-w-0 w-full mb-1">
             <p
-              v-if="forum.messagesCount >= 1"
+              v-if="forum.messagesCount >= 10"
               class="text-secondary-default-color text-sm font-bold italic mb-1"
             >
               Tópico em destaque!
@@ -364,12 +394,12 @@ watch(
           </div>
         </div>
 
-        <p v-if="forum.messagesCount >= 1" class="mt-4 mb-6 line-clamp-3 text-xs text-text-color-54">
+        <p v-if="forum.messagesCount >= 10" class="mt-4 mb-6 line-clamp-3 text-xs text-text-color-54">
           {{ forum.description || 'Sem descricao cadastrada.' }}
         </p>
 
         <div class="flex flex-items justify-between">
-          <div :class="['text-xs text-text-color-54', forum.messagesCount >= 1 ? 'flex items-center' : '']">
+          <div :class="['text-xs text-text-color-54', forum.messagesCount >= 10 ? 'flex items-center' : '']">
             <p class="mr-1">Criado por:</p>
             <p class="font-bold">{{ forum.creatorName }}</p>
           </div>

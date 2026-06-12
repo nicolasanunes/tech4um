@@ -52,6 +52,9 @@ interface ForumMessage {
 	authorId: number
 	authorName: string
 	authorAvatarUrl: string | null
+	isPrivate: boolean
+	recipientId: number | null
+	recipientName: string | null
 	createdAt: string
 }
 
@@ -123,6 +126,11 @@ const isLoadingForum = ref(true)
 const isLoadingForums = ref(false)
 const errorMessage = ref<string | null>(null)
 const isParticipantsVisible = ref(true)
+const privateRecipient = ref<ForumParticipant | null>(null)
+
+const forumLayoutStyle = computed(() => ({
+	'--participants-column-size': isParticipantsVisible.value ? '16rem' : '0rem',
+}))
 
 const messageInput = ref('')
 const otherForums = ref<ForumCardItem[]>([])
@@ -197,8 +205,10 @@ function normalizeForumState(
 			}
 		}
 
+		const normalizedParticipantId = Number(participant.id)
+
 		return {
-			id: participant.id,
+			id: Number.isFinite(normalizedParticipantId) ? normalizedParticipantId : -(index + 1),
 			username: participant.username,
 			avatarUrl: participant.avatarUrl ?? null,
 		}
@@ -222,6 +232,9 @@ function normalizeForumState(
 			(message as ForumMessage).authorAvatarUrl === null
 				? (message as ForumMessage).authorAvatarUrl
 				: null,
+		isPrivate: (message as ForumMessage).isPrivate === true,
+		recipientId: (message as ForumMessage).recipientId ?? null,
+		recipientName: (message as ForumMessage).recipientName ?? null,
 		createdAt: message.createdAt,
 	}))
 
@@ -235,8 +248,40 @@ function normalizeForumState(
 	}
 }
 
+function normalizeIncomingMessage(rawMessage: ForumMessage): ForumMessage {
+	return {
+		id: Number(rawMessage.id),
+		text: `${rawMessage.text ?? ''}`,
+		imageUrl:
+			typeof rawMessage.imageUrl === 'string' || rawMessage.imageUrl === null
+				? rawMessage.imageUrl
+				: null,
+		authorId: Number(rawMessage.authorId),
+		authorName: `${rawMessage.authorName ?? ''}`,
+		authorAvatarUrl:
+			typeof rawMessage.authorAvatarUrl === 'string' || rawMessage.authorAvatarUrl === null
+				? rawMessage.authorAvatarUrl
+				: null,
+		isPrivate: rawMessage.isPrivate === true,
+		recipientId:
+			typeof rawMessage.recipientId === 'number' ? rawMessage.recipientId : null,
+		recipientName:
+			typeof rawMessage.recipientName === 'string' ? rawMessage.recipientName : null,
+		createdAt: `${rawMessage.createdAt}`,
+	}
+}
+
 function sendImageMessage(imageDataUrl: string): void {
 	if (!socket || !isForumIdValid.value) {
+		return
+	}
+
+	if (privateRecipient.value) {
+		socket.emit('send_message', {
+			forumId: currentForumId.value,
+			recipientId: privateRecipient.value.id,
+			imageUrl: imageDataUrl,
+		})
 		return
 	}
 
@@ -362,6 +407,32 @@ function clearTypingTimeout(): void {
 	}
 }
 
+function resolveActiveParticipantByUsername(username: string): ForumParticipant | null {
+	const normalizedUsername = username.trim().toLowerCase()
+
+	const activeParticipant = allParticipants.value.find((participant) => {
+		return (
+			participant.username.trim().toLowerCase() === normalizedUsername &&
+			Number.isFinite(Number(participant.id)) &&
+			Number(participant.id) > 0
+		)
+	})
+
+	if (activeParticipant) {
+		return activeParticipant
+	}
+
+	const onlineParticipant = onlineParticipants.value.find((participant) => {
+		return (
+			participant.username.trim().toLowerCase() === normalizedUsername &&
+			Number.isFinite(Number(participant.id)) &&
+			Number(participant.id) > 0
+		)
+	})
+
+	return onlineParticipant ?? null
+}
+
 function emitTypingStop(): void {
 	if (!socket || !isTyping || !isForumIdValid.value) {
 		return
@@ -448,7 +519,13 @@ function setupSocket(): void {
 	})
 
 	socket.on('forum_message_created', async (message: ForumMessage) => {
-		messages.value.push(message)
+		const normalizedMessage = normalizeIncomingMessage(message)
+
+		if (messages.value.some((currentMessage) => currentMessage.id === normalizedMessage.id)) {
+			return
+		}
+
+		messages.value.push(normalizedMessage)
 		await scrollMessagesToBottom(true)
 	})
 
@@ -457,7 +534,15 @@ function setupSocket(): void {
 			return
 		}
 
-		onlineParticipants.value = payload.users
+		onlineParticipants.value = (payload.users ?? []).map((participant, index) => {
+			const normalizedParticipantId = Number(participant.id)
+
+			return {
+				id: Number.isFinite(normalizedParticipantId) ? normalizedParticipantId : -(index + 1),
+				username: participant.username,
+				avatarUrl: participant.avatarUrl ?? null,
+			}
+		})
 	})
 
 	socket.on('typing_start', (payload: TypingPayload) => {
@@ -526,14 +611,78 @@ async function sendMessage(): Promise<void> {
 		return
 	}
 
-	socket.emit('send_message', {
-		forumId: currentForumId.value,
-		text,
-	})
+	if (privateRecipient.value) {
+		socket.emit('send_message', {
+			forumId: currentForumId.value,
+			recipientId: privateRecipient.value.id,
+			text,
+		})
+	} else {
+		socket.emit('send_message', {
+			forumId: currentForumId.value,
+			text,
+		})
+	}
 
 	messageInput.value = ''
 	emitTypingStop()
 	clearTypingTimeout()
+}
+
+function setPrivateRecipient(participant: ForumParticipant): void {
+	const parsedRecipientId = Number(participant.id)
+	let recipientId =
+		Number.isFinite(parsedRecipientId) && parsedRecipientId > 0
+			? parsedRecipientId
+			: null
+	let resolvedParticipant: ForumParticipant | null = null
+
+	if (recipientId !== null) {
+		resolvedParticipant = {
+			id: recipientId,
+			username: participant.username,
+			avatarUrl: participant.avatarUrl ?? null,
+		}
+	}
+
+	if (recipientId === null) {
+		const candidate = resolveActiveParticipantByUsername(participant.username)
+
+		if (candidate) {
+			recipientId = Number(candidate.id)
+			resolvedParticipant = {
+				id: recipientId,
+				username: candidate.username,
+				avatarUrl: candidate.avatarUrl ?? participant.avatarUrl ?? null,
+			}
+		}
+	}
+
+	if (recipientId === null || resolvedParticipant === null) {
+		errorMessage.value = 'Nao foi possivel iniciar mensagem privada para este usuario.'
+		return
+	}
+
+	if (me.value && resolvedParticipant.username === me.value.username) {
+		return
+	}
+
+	privateRecipient.value = resolvedParticipant
+	errorMessage.value = null
+	nextTick(() => getMessageInputElement()?.focus())
+}
+
+function clearPrivateRecipient(): void {
+	privateRecipient.value = null
+}
+
+function handleInputKeydown(event: KeyboardEvent): void {
+	if (event.key === 'Enter') {
+		event.preventDefault()
+		void sendMessage()
+	} else if (event.key === 'Escape') {
+		clearPrivateRecipient()
+	}
 }
 
 function openForum(forumId: number): void {
@@ -591,19 +740,18 @@ onBeforeUnmount(() => {
           Voltar para o dashboard
         </p>
       </Button>
-			<!-- <Button
-				class="bg-primary-dark-color hover:bg-primary-default-color"
-				type="button"
-				@click="isParticipantsVisible = !isParticipantsVisible"
-			>
-				{{ isParticipantsVisible ? 'Ocultar participantes' : 'Mostrar participantes' }}
-			</Button> -->
+
 		</div>
 
-		<div class="grid h-full grid-cols-1 gap-4 lg:grid-cols-[16rem_minmax(0,1fr)_12rem]">
+		<div class="forum-layout grid h-full grid-cols-1 gap-4" :style="forumLayoutStyle">
 			<aside
-				v-show="isParticipantsVisible"
-				class="rounded-xl border border-border bg-background-color shadow-sm"
+				:aria-hidden="!isParticipantsVisible"
+				:class="[
+					'participants-panel min-w-0 overflow-hidden rounded-xl border border-border bg-background-color shadow-sm transition-[opacity,transform] duration-300 ease-in-out',
+					isParticipantsVisible
+						? 'translate-x-0 opacity-100 pointer-events-auto'
+						: '-translate-x-8 opacity-0 pointer-events-none',
+				]"
 			>
 				<div class="mb-3 flex items-center justify-between rounded-t-xl px-4 py-6 shadow-md rounded-b-none">
 					<h2 class="font-bold text-primary-dark-color">Participantes online</h2>
@@ -614,7 +762,7 @@ onBeforeUnmount(() => {
 					<li
 						v-for="participant in onlineParticipants"
 						:key="participant.id"
-						class="flex items-center gap-2 rounded-xl p-2 hover:bg-text-color-25/30 transition-colors"
+						class="group relative flex items-center gap-2 rounded-xl p-2 pr-8 transition-colors hover:bg-text-color-25/30"
 					>
             <Avatar
               class="size-10"
@@ -625,6 +773,9 @@ onBeforeUnmount(() => {
               <AvatarFallback class="border border-text-color-25/30">{{ getUserInitials(participant.username) }}</AvatarFallback>
             </Avatar>
 						<p class="truncate text-sm text-text-color-54">{{ participant.username }}</p>
+						<span class="pointer-events-none opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+							<svg @click="setPrivateRecipient(participant)" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cursor-pointer text-primary-dark-color transition-colors hover:text-primary-default-color"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
+						</span>
 					</li>
 				</ul>
 				<p v-if="!onlineParticipants.length" class="mt-4 text-sm text-text-color-54">
@@ -632,9 +783,21 @@ onBeforeUnmount(() => {
 				</p>
 			</aside>
 
-			<section class="relative flex min-h-0 flex-col rounded-xl border border-border bg-background-color shadow-sm">
+			<section class="relative flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-background-color shadow-sm">
 				<header class="flex items-center justify-between border-b border-border shadow-md px-4 py-5">
-					<h1 class="text-2xl font-bold text-primary-dark-color">{{ forumName || 'Forum' }}</h1>
+          <div class="flex flex-items gap-4">
+						<button
+							:aria-expanded="isParticipantsVisible"
+							:aria-label="isParticipantsVisible ? 'Ocultar participantes online' : 'Mostrar participantes online'"
+							class="mt-1 flex cursor-pointer items-center text-primary-dark-color transition-colors hover:text-primary-default-color"
+              type="button"
+              @click="isParticipantsVisible = !isParticipantsVisible"
+            >
+              <svg v-if="isParticipantsVisible" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left"><path d="m15 18-6-6 6-6"/></svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>
+						</button>
+            <h1 class="text-2xl font-bold text-primary-dark-color">{{ forumName || 'Forum' }}</h1>
+          </div>
           <div class="flex items-center gap-1 text-md text-primary-dark-color">
             <p>Criado por:</p>
             <p class="font-bold">{{ forumCreatorName || '-' }}</p>
@@ -650,9 +813,11 @@ onBeforeUnmount(() => {
 						:key="message.id"
 						:class="[
 							'max-w-[80%] rounded-xl p-3',
-							isOwnMessage(message)
-								? 'ml-auto bg-primary-dark-color text-white'
-								: 'bg-background-color text-text-color-54',
+							message.isPrivate
+								? 'bg-secondary-dark-color text-white ' + (isOwnMessage(message) ? 'ml-auto' : '')
+								: isOwnMessage(message)
+									? 'ml-auto bg-primary-dark-color text-white'
+									: 'bg-background-color text-text-color-54',
 						]"
 					>
             <div class="flex flex-items gap-3">
@@ -666,8 +831,13 @@ onBeforeUnmount(() => {
                   <AvatarFallback class="border border-text-color-25/30">{{ getUserInitials(message.authorName) }}</AvatarFallback>
                 </Avatar>
               </div>
-              <div class="mt-3">
-                <p class="mb-1 text-xs opacity-80">{{ message.authorName }}</p>
+              <div class="mt-3 group">
+                <div class="flex gap-2">
+                  <p class="mb-1 text-xs opacity-80">{{ message.authorName }}</p>
+                  <span v-if="!isOwnMessage(message)" class="opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <svg @click="setPrivateRecipient({ id: message.authorId, username: message.authorName, avatarUrl: message.authorAvatarUrl })" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="['cursor-pointer transition-colors', message.isPrivate ? 'text-primary-dark-color hover:text-primary-default-color' : 'text-secondary-dark-color hover:text-secondary-default-color']"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
+                  </span>
+                </div>
 								<p v-if="message.text" class="whitespace-pre-wrap text-sm">{{ message.text }}</p>
 								<img
 									v-if="message.imageUrl"
@@ -690,9 +860,22 @@ onBeforeUnmount(() => {
 					{{ `${activeTypingName} está digitando...` }}
 				</p>
 
-				<div class="border-t border-border py-5 px-4 bg-primary-dark-color rounded-b-xl">
+				<div :class="['border-t border-border py-5 px-4 rounded-b-xl transition-colors duration-300', privateRecipient ? 'bg-secondary-dark-color' : 'bg-primary-dark-color']">
           <div class="flex flex-items justify-between px-2 pt-2 pb-4">
-            <p class="text-xs font-bold text-white">Enviando para todos do 4um</p>
+            <div class="flex items-center gap-2">
+              <p class="text-xs font-bold text-white">
+                {{ privateRecipient ? `Enviando para ${privateRecipient.username}` : 'Enviando para todos do 4um' }}
+              </p>
+              <button
+                v-if="privateRecipient"
+                type="button"
+                class="flex items-center text-xs  justify-center rounded-full text-text-color-25 hover:text-white transition-colors cursor-pointer"
+                :aria-label="`Cancelar mensagem privada para ${privateRecipient.username}`"
+                @click="clearPrivateRecipient"
+              >
+                Cancelar envio de mensagem privada
+              </button>
+            </div>
             <div class="flex flex-items gap-2 text-white">
 							<ForumEmojiPicker @select="onEmojiSelect" />
 							<DragOrDropImage @select="sendImageMessage" />
@@ -707,7 +890,7 @@ onBeforeUnmount(() => {
 							placeholder="Escreva aqui uma mensagem maneira para mandar para os colegas..."
 							@input="handleTypingInput"
 							@blur="emitTypingStop"
-							@keydown.enter.prevent="sendMessage"
+						@keydown="handleInputKeydown"
 						/>
 						<Button
 							class="absolute right-1 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-transparent p-0 text-black hover:bg-primary-default-color/15 cursor-pointer"
@@ -767,3 +950,16 @@ onBeforeUnmount(() => {
 		<FullscreenImage v-model="fullscreenImageUrl" />
 	</div>
 </template>
+
+<style scoped>
+.forum-layout {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+	.forum-layout {
+		grid-template-columns: var(--participants-column-size, 16rem) minmax(0, 1fr) 12rem;
+		transition: grid-template-columns 300ms ease;
+	}
+}
+</style>

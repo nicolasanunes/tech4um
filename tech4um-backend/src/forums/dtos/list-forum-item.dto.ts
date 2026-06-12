@@ -6,4 +6,5 @@ export class ListForumItemDto {
   lastCommentAuthorName!: string | null;
   messagesCount!: number;
   participantsCount!: number;
+  createdAt!: Date;
 }

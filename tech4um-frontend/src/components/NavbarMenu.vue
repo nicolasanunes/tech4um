@@ -4,20 +4,43 @@ import {
   AvatarFallback,
   AvatarImage,
 } from '@/components/ui/avatar'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getUserInitials } from '@/utils/user-initials'
 import AuthComponent from './AuthComponent.vue'
 import UpdateAvatar from './UpdateAvatar.vue'
 
 const authStore = useAuthStore()
+const router = useRouter()
 const isUserMenuOpen = ref(false)
 const isLoggingOut = ref(false)
+const userMenuContainerRef = ref<HTMLElement | null>(null)
 
 const userInitials = computed(() => getUserInitials(authStore.user?.username))
 
 function toggleUserMenu(): void {
   isUserMenuOpen.value = !isUserMenuOpen.value
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  if (!isUserMenuOpen.value) {
+    return
+  }
+
+  const container = userMenuContainerRef.value
+  if (!container) {
+    return
+  }
+
+  const target = event.target
+  if (!(target instanceof Node)) {
+    return
+  }
+
+  if (!container.contains(target)) {
+    isUserMenuOpen.value = false
+  }
 }
 
 async function handleLogout(): Promise<void> {
@@ -30,10 +53,19 @@ async function handleLogout(): Promise<void> {
   try {
     await authStore.logout()
     isUserMenuOpen.value = false
+    await router.replace('/forums')
   } finally {
     isLoggingOut.value = false
   }
 }
+
+onMounted(() => {
+  document.addEventListener('click', handleDocumentClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClick)
+})
 </script>
 
 <template>
@@ -58,7 +90,7 @@ async function handleLogout(): Promise<void> {
     </RouterLink>
     <p  class="text-text-color-25">Seu fórum sobre tecnologia!</p>
     </div>
-    <div v-if="authStore.isAuthenticated" class="relative flex items-center gap-4">
+    <div ref="userMenuContainerRef" v-if="authStore.isAuthenticated" class="relative flex items-center gap-4">
       <div class="text-text-color-54">
         <p class="text-sm font-bold">{{ authStore.user?.username }}</p>
         <p class="text-xs">{{ authStore.user?.email }}</p>

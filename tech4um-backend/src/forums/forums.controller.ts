@@ -40,6 +40,7 @@ export class ForumsController {
     @Query('search') search?: string,
     @Query('name') name?: string,
     @Query('creatorName') creatorName?: string,
+    @Query('sort') sort?: ListForumsQueryDto['sort'],
   ) {
     const query: ListForumsQueryDto = {
       page,
@@ -47,6 +48,7 @@ export class ForumsController {
       search,
       name,
       creatorName,
+      sort,
     };
 
     return this.forumsService.listAllForums(query);
@@ -55,8 +57,11 @@ export class ForumsController {
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ResponseMessage('Forum encontrado com sucesso')
-  async listForumById(@Param('id', ParseIntPipe) id: number) {
-    return this.forumsService.listForumById(id);
+  async listForumById(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: Request & { user: LoginPayloadDto },
+  ) {
+    return this.forumsService.listForumById(id, Number(request.user.id));
   }
 
   @Get(':id/sidebar')

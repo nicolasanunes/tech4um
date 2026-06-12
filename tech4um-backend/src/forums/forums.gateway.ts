@@ -18,6 +18,14 @@ interface JoinForumPayload {
  
 interface SendMessagePayload {
   forumId: number;
+  recipientId?: number;
+  text?: string;
+  imageUrl?: string;
+}
+
+interface SendPrivateMessagePayload {
+  forumId: number;
+  recipientId: number;
   text?: string;
   imageUrl?: string;
 }
@@ -105,7 +113,7 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(this.getForumRoom(forumId));
       this.socketRoom.set(client.id, forumId);
 
-      const forumState = await this.forumsService.listForumById(forumId);
+      const forumState = await this.forumsService.listForumById(forumId, Number(user.id));
       client.emit('forum_state', forumState);
 
       await this.emitOnlineParticipants(forumId);
@@ -150,6 +158,13 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const forumId = Number(payload?.forumId);
+    const hasRecipientField =
+      payload?.recipientId !== undefined && payload?.recipientId !== null;
+    const recipientId = hasRecipientField ? Number(payload.recipientId) : null;
+    const invalidRecipientId = hasRecipientField
+      ? !Number.isFinite(recipientId) || Number(recipientId) <= 0
+      : false;
+    const isPrivate = hasRecipientField;
     const text = `${payload?.text ?? ''}`.trim();
     const imageUrl = `${payload?.imageUrl ?? ''}`.trim();
 
@@ -162,6 +177,11 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    if (invalidRecipientId) {
+      client.emit('chat_error', { message: 'Destinatario invalido para mensagem privada' });
+      return;
+    }
+
     if (imageUrl && !this.isValidImageDataUrl(imageUrl)) {
       client.emit('chat_error', { message: 'Imagem invalida ou muito grande' });
       return;
@@ -170,7 +190,37 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       await this.forumsService.ensureForumParticipant(forumId, Number(user.id));
 
-      const message = await this.forumsService.createPublicMessage(
+      if (isPrivate) {
+        const privateRecipientId = recipientId as number;
+
+        if (Number(user.id) === privateRecipientId) {
+          client.emit('chat_error', { message: 'Nao e possivel enviar mensagem privada para si mesmo' });
+          return;
+        }
+
+        await this.forumsService.ensureForumParticipant(forumId, privateRecipientId);
+
+        const privateMessage = await this.forumsService.createPrivateMessage(
+          forumId,
+          Number(user.id),
+          privateRecipientId,
+          text,
+          imageUrl || null,
+        );
+
+        const targetUserIds = new Set<number>([Number(user.id), privateRecipientId]);
+        for (const [socketId, roomForumId] of this.socketRoom.entries()) {
+          if (roomForumId !== forumId) continue;
+
+          const socketUser = this.socketUsers.get(socketId);
+          if (socketUser && targetUserIds.has(Number(socketUser.id))) {
+            this.server.to(socketId).emit('forum_message_created', privateMessage);
+          }
+        }
+        return;
+      }
+
+      const publicMessage = await this.forumsService.createPublicMessage(
         forumId,
         Number(user.id),
         text,
@@ -179,12 +229,25 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       this.server
         .to(this.getForumRoom(forumId))
-        .emit('forum_message_created', message);
+        .emit('forum_message_created', publicMessage);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Falha ao enviar mensagem';
       client.emit('chat_error', { message });
     }
+  }
+
+  @SubscribeMessage('send_private_message')
+  async sendPrivateMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: SendPrivateMessagePayload,
+  ): Promise<void> {
+    await this.sendMessage(client, {
+      forumId: payload.forumId,
+      recipientId: payload.recipientId,
+      text: payload.text,
+      imageUrl: payload.imageUrl,
+    });
   }
 
   @SubscribeMessage('typing_start')

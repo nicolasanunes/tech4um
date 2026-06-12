@@ -39,6 +39,20 @@ export class Message {
     })
     declare imageUrl: string | null;
 
+    @Column({
+    name: 'is_private',
+    type: 'boolean',
+    default: false,
+    })
+    declare isPrivate: boolean;
+
+    @ManyToOne(() => User, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+    })
+    declare recipient: User | null;
+
     @CreateDateColumn()
     declare createdAt: Date;
 }

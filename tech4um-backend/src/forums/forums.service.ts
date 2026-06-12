@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { Forum } from './entities/forum.entity';
 import { CreateForumDto } from './dtos/create-forum.dto';
 import { User } from '../users/entities/user.entity';
@@ -105,6 +105,7 @@ export class ForumsService {
 		const page = Math.max(1, Number(query.page ?? 1));
 		const pageSize = Math.max(1, Math.min(Number(query.pageSize ?? 10), 100));
 		const skip = (page - 1) * pageSize;
+		const orderBy = this.resolveListForumsOrderBy(query.sort);
 
 		const conditions: string[] = [];
 		const params: unknown[] = [];
@@ -152,6 +153,7 @@ export class ForumsService {
 			lastCommentAuthorName: string | null;
 			messagesCount: string;
 			participantsCount: string;
+			createdAt: string;
 		}[]>(
 			`SELECT
 				f.id                        AS id,
@@ -160,7 +162,8 @@ export class ForumsService {
 				c.username                  AS "creatorName",
 				last_msg.username           AS "lastCommentAuthorName",
 				(SELECT COUNT(*) FROM messages m   WHERE m."forumId" = f.id)::int AS "messagesCount",
-				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount"
+				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
+				f."createdAt"              AS "createdAt"
 			 FROM forums f
 			 LEFT JOIN users c ON c.id = f."creatorId"
 			 LEFT JOIN LATERAL (
@@ -172,7 +175,7 @@ export class ForumsService {
 				LIMIT 1
 			 ) last_msg ON true
 			 ${where}
-			 ORDER BY f."createdAt" DESC
+			 ORDER BY ${orderBy}
 			 LIMIT $${p} OFFSET $${p + 1}`,
 			[...params, pageSize, skip],
 		);
@@ -185,21 +188,19 @@ export class ForumsService {
 			lastCommentAuthorName: row.lastCommentAuthorName ?? row.creatorName,
 			messagesCount: Number(row.messagesCount ?? 0),
 			participantsCount: Number(row.participantsCount ?? 0),
+			createdAt: new Date(row.createdAt),
 		}));
 
 		return { items, page, pageSize, total };
 	}
 
-	async listForumById(id: number): Promise<ListForumByIdResponseDto> {
+	async listForumById(id: number, viewerUserId?: number): Promise<ListForumByIdResponseDto> {
 		const forum = await this.forumsRepository.findOne({
 			where: { id },
 			relations: {
 				creator: true,
 				participants: {
 					user: true,
-				},
-				messages: {
-					author: true,
 				},
 			},
 		});
@@ -215,20 +216,46 @@ export class ForumsService {
 				const bTime = b.lastInteraction?.getTime() ?? b.firstInteraction.getTime();
 				return bTime - aTime;
 			})
-			.map((participant) => participant.user.username);
-
-		const messages = forum.messages
-			.slice()
-			.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-			.map((message) => ({
-				id: message.id,
-				text: message.text,
-				imageUrl: message.imageUrl ?? null,
-				authorId: message.author.id,
-				authorName: message.author.username,
-				authorAvatarUrl: message.author.avatarUrl ?? null,
-				createdAt: message.createdAt,
+			.map((participant) => ({
+				id: participant.user.id,
+				username: participant.user.username,
+				avatarUrl: participant.user.avatarUrl ?? null,
 			}));
+
+		const messagesQuery = this.messagesRepository
+			.createQueryBuilder('message')
+			.leftJoinAndSelect('message.author', 'author')
+			.leftJoinAndSelect('message.recipient', 'recipient')
+			.where('message."forumId" = :forumId', { forumId: id })
+			.orderBy('message."createdAt"', 'ASC')
+			.addOrderBy('message.id', 'ASC');
+
+		if (viewerUserId != null) {
+			messagesQuery.andWhere(
+				new Brackets((qb) => {
+					qb.where('message.is_private = false')
+						.orWhere('author.id = :viewerUserId', { viewerUserId })
+						.orWhere('recipient.id = :viewerUserId', { viewerUserId });
+				}),
+			);
+		} else {
+			messagesQuery.andWhere('message.is_private = false');
+		}
+
+		const persistedMessages = await messagesQuery.getMany();
+
+		const messages = persistedMessages.map((message) => ({
+			id: message.id,
+			text: message.text,
+			imageUrl: message.imageUrl ?? null,
+			authorId: message.author.id,
+			authorName: message.author.username,
+			authorAvatarUrl: message.author.avatarUrl ?? null,
+			isPrivate: message.isPrivate,
+			recipientId: message.recipient?.id ?? null,
+			recipientName: message.recipient?.username ?? null,
+			createdAt: message.createdAt,
+		}));
 
 		return {
 			id: forum.id,
@@ -237,7 +264,7 @@ export class ForumsService {
 			creatorName: forum.creator.username,
 			participants,
 			messages,
-		};
+		}; 
 	}
 
 	async listForumSidebar(
@@ -255,6 +282,7 @@ export class ForumsService {
 			lastCommentAuthorName: string | null;
 			messagesCount: string;
 			participantsCount: string;
+			createdAt: string;
 		}[]>(
 			`SELECT
 				f.id                        AS id,
@@ -263,7 +291,8 @@ export class ForumsService {
 				c.username                  AS "creatorName",
 				last_msg.username           AS "lastCommentAuthorName",
 				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id)::int AS "messagesCount",
-				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount"
+				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
+				f."createdAt"              AS "createdAt"
 			 FROM forums f
 			 LEFT JOIN users c ON c.id = f."creatorId"
 			 LEFT JOIN LATERAL (
@@ -295,6 +324,7 @@ export class ForumsService {
 			lastCommentAuthorName: string | null;
 			messagesCount: string;
 			participantsCount: string;
+			createdAt: string;
 		}[]>(
 			`SELECT
 				f.id                        AS id,
@@ -303,7 +333,8 @@ export class ForumsService {
 				c.username                  AS "creatorName",
 				last_msg.username           AS "lastCommentAuthorName",
 				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id)::int AS "messagesCount",
-				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount"
+				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
+				f."createdAt"              AS "createdAt"
 			 FROM forums f
 			 LEFT JOIN users c ON c.id = f."creatorId"
 			 LEFT JOIN LATERAL (
@@ -384,6 +415,19 @@ export class ForumsService {
 		);
 	}
 
+	private async resolveForumAndUser(
+		forumId: number,
+		userId: number,
+	) {
+		const forum = await this.forumsRepository.findOne({ where: { id: forumId } });
+		if (!forum) throw new NotFoundException('Forum nao encontrado');
+
+		const user = await this.usersRepository.findOne({ where: { id: userId } });
+		if (!user) throw new NotFoundException('Usuario nao encontrado');
+
+		return { forum, user };
+	}
+
 	async createPublicMessage(
 		forumId: number,
 		userId: number,
@@ -396,23 +440,12 @@ export class ForumsService {
 		authorId: number;
 		authorName: string;
 		authorAvatarUrl: string | null;
+		isPrivate: false;
+		recipientId: null;
+		recipientName: null;
 		createdAt: Date;
 	}> {
-		const forum = await this.forumsRepository.findOne({
-			where: { id: forumId },
-		});
-
-		if (!forum) {
-			throw new NotFoundException('Forum nao encontrado');
-		}
-
-		const user = await this.usersRepository.findOne({
-			where: { id: userId },
-		});
-
-		if (!user) {
-			throw new NotFoundException('Usuario nao encontrado');
-		}
+		const { forum, user } = await this.resolveForumAndUser(forumId, userId);
 
 		const normalizedText = `${text ?? ''}`.trim();
 		const normalizedImageUrl = `${imageUrl ?? ''}`.trim() || null;
@@ -426,6 +459,8 @@ export class ForumsService {
 			author: user,
 			text: normalizedText,
 			imageUrl: normalizedImageUrl,
+			isPrivate: false,
+			recipient: null,
 		});
 
 		const savedMessage = await this.messagesRepository.save(message);
@@ -440,6 +475,67 @@ export class ForumsService {
 			authorId: user.id,
 			authorName: user.username,
 			authorAvatarUrl: user.avatarUrl ?? null,
+			isPrivate: false as const,
+			recipientId: null,
+			recipientName: null,
+			createdAt: savedMessage.createdAt,
+		};
+	}
+
+	async createPrivateMessage(
+		forumId: number,
+		authorId: number,
+		recipientId: number,
+		text: string,
+		imageUrl?: string | null,
+	): Promise<{
+		id: number;
+		text: string;
+		imageUrl: string | null;
+		authorId: number;
+		authorName: string;
+		authorAvatarUrl: string | null;
+		isPrivate: true;
+		recipientId: number;
+		recipientName: string;
+		createdAt: Date;
+	}> {
+		const { forum, user } = await this.resolveForumAndUser(forumId, authorId);
+
+		const recipient = await this.usersRepository.findOne({ where: { id: recipientId } });
+		if (!recipient) throw new NotFoundException('Destinatario nao encontrado');
+
+		const normalizedText = `${text ?? ''}`.trim();
+		const normalizedImageUrl = `${imageUrl ?? ''}`.trim() || null;
+
+		if (!normalizedText && !normalizedImageUrl) {
+			throw new NotFoundException('Mensagem invalida');
+		}
+
+		const message = this.messagesRepository.create({
+			forum,
+			author: user,
+			recipient,
+			text: normalizedText,
+			imageUrl: normalizedImageUrl,
+			isPrivate: true,
+		});
+
+		const savedMessage = await this.messagesRepository.save(message);
+
+		forum.messagesCount += 1;
+		await this.forumsRepository.save(forum);
+
+		return {
+			id: savedMessage.id,
+			text: savedMessage.text,
+			imageUrl: savedMessage.imageUrl ?? null,
+			authorId: user.id,
+			authorName: user.username,
+			authorAvatarUrl: user.avatarUrl ?? null,
+			isPrivate: true as const,
+			recipientId: recipient.id,
+			recipientName: recipient.username,
 			createdAt: savedMessage.createdAt,
 		};
 	}
@@ -452,6 +548,7 @@ export class ForumsService {
 		lastCommentAuthorName: string | null;
 		messagesCount: string;
 		participantsCount: string;
+		createdAt: string;
 	}): ListForumItemDto {
 		return {
 			id: Number(row.id),
@@ -461,7 +558,26 @@ export class ForumsService {
 			lastCommentAuthorName: row.lastCommentAuthorName ?? row.creatorName,
 			messagesCount: Number(row.messagesCount ?? 0),
 			participantsCount: Number(row.participantsCount ?? 0),
+			createdAt: new Date(row.createdAt),
 		};
+	}
+
+	private resolveListForumsOrderBy(sort?: ListForumsQueryDto['sort']): string {
+		switch (sort) {
+			case 'date_asc':
+				return 'f."createdAt" ASC, f.id ASC';
+			case 'messages_desc':
+				return '"messagesCount" DESC, f."createdAt" DESC, f.id DESC';
+			case 'messages_asc':
+				return '"messagesCount" ASC, f."createdAt" ASC, f.id ASC';
+			case 'participants_desc':
+				return '"participantsCount" DESC, f."createdAt" DESC, f.id DESC';
+			case 'participants_asc':
+				return '"participantsCount" ASC, f."createdAt" ASC, f.id ASC';
+			case 'date_desc':
+			default:
+				return 'f."createdAt" DESC, f.id DESC';
+		}
 	}
 
 	async listUsersBasicByIds(
