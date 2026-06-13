@@ -1,48 +1,105 @@
-# tech4um-frontend
+# Tech4UM Frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+Aplicacao frontend da plataforma Tech4UM, responsavel pela interface de autenticacao, navegacao entre foruns, chat em tempo real e interacoes do usuario.
 
-## Recommended IDE Setup
+## O que este frontend faz
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Realiza login e sessao do usuario com cookies httpOnly no backend.
+- Lista, pesquisa e organiza foruns com interface responsiva.
+- Exibe tela de conversa com mensagens em tempo real via Socket.IO.
+- Permite envio de mensagens publicas e privadas no contexto do forum.
+- Exibe participantes online e funcionalidades de interacao no chat.
+- Gerencia estado global de autenticacao com Pinia.
 
-## Recommended Browser Setup
+## Tecnologias principais
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+- Vue 3 + TypeScript
+- Vite
+- Vue Router
+- Pinia
+- Tailwind CSS 4
+- Socket.IO Client
+- Reka UI + utilitarios de estilo (CVA, clsx, tailwind-merge)
+- ESLint + Oxlint + Prettier
 
-## Type Support for `.vue` Imports in TS
+## Estrutura principal
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+- src/views: telas principais (lista de foruns e chat).
+- src/components: componentes reutilizaveis da interface.
+- src/stores: estado global (autenticacao e modais).
+- src/lib: integracao HTTP com renovacao automatica de sessao.
+- src/router: configuracao de rotas da aplicacao.
 
-## Customize configuration
+## Pre-requisitos
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+- Node.js 20+
+- npm 10+
+- Backend Tech4UM em execucao
 
-## Project Setup
+## Variaveis de ambiente
 
-```sh
+Crie um arquivo .env na raiz de tech4um-frontend:
+
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+Observacao:
+- Em rede local (LAN), use o IP do backend, por exemplo: VITE_API_URL=http://192.168.1.20:3000
+
+## Como rodar localmente
+
+### 1) Instale as dependencias
+
+```bash
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+### 2) Configure o ambiente
 
-```sh
+Crie o arquivo .env com VITE_API_URL apontando para o backend.
+
+### 3) Inicie em modo desenvolvimento
+
+```bash
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Servidor padrao: http://localhost:5173
 
-```sh
+## Scripts uteis
+
+```bash
+# desenvolvimento
+npm run dev
+
+# build de producao (type-check + bundle)
 npm run build
-```
 
-### Lint with [ESLint](https://eslint.org/)
+# apenas build
+npm run build-only
 
-```sh
+# preview do build
+npm run preview
+
+# type-check
+npm run type-check
+
+# lint completo
 npm run lint
+
+# lint com oxlint
+npm run lint:oxlint
+
+# lint com eslint
+npm run lint:eslint
+
+# formatacao
+npm run format
 ```
+
+## Integracao com backend
+
+- O frontend envia requisicoes com credentials include para suportar cookies de sessao.
+- O backend deve estar com CORS habilitado para o host do frontend.
+- Para acesso via IP da rede local, ajuste VITE_API_URL para o endereco correto do backend.

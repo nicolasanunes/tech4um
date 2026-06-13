@@ -838,7 +838,7 @@ onBeforeUnmount(() => {
 
 			<section class="order-2 relative flex h-[calc(100dvh-10rem)] min-h-0 min-w-0 flex-col rounded-xl border border-border bg-background-color shadow-sm lg:h-full">
 				<header class="flex items-center justify-between border-b border-border shadow-md px-4 py-5">
-          <div class="flex flex-items gap-4">
+		  <div class="flex items-center gap-4">
 						<button
 							:aria-expanded="isParticipantsVisible"
 							:aria-label="isParticipantsVisible ? 'Ocultar participantes online' : 'Mostrar participantes online'"
@@ -873,7 +873,7 @@ onBeforeUnmount(() => {
 									: 'bg-background-color text-text-color-54',
 						]"
 					>
-            <div class="flex flex-items gap-3">
+			<div class="flex items-center gap-3">
               <div class="flex">
                 <Avatar
                   class="size-10"
@@ -914,7 +914,7 @@ onBeforeUnmount(() => {
 				</p>
 
 				<div :class="['border-t border-border py-5 px-4 rounded-b-xl transition-colors duration-300', privateRecipient ? 'bg-secondary-dark-color' : 'bg-primary-dark-color']">
-          <div class="flex flex-items justify-between px-2 pt-2 pb-4">
+		  <div class="flex items-center justify-between px-2 pt-2 pb-4">
             <div class="flex items-center gap-2">
               <p class="text-xs font-bold text-white">
                 {{ privateRecipient ? `Enviando para ${privateRecipient.username}` : 'Enviando para todos do 4um' }}
@@ -929,7 +929,7 @@ onBeforeUnmount(() => {
                 Cancelar envio de mensagem privada
               </button>
             </div>
-            <div class="flex flex-items gap-2 text-white">
+			<div class="flex items-center gap-2 text-white">
 							<ForumEmojiPicker @select="onEmojiSelect" />
 							<DragOrDropImage @select="sendImageMessage" />
             </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref } from 'vue'
 import 'emoji-picker-element'
 
 defineOptions({
@@ -14,14 +14,23 @@ const emojiPickerRef = ref<HTMLElement | null>(null)
 const emojiButtonRef = ref<HTMLButtonElement | null>(null)
 const isEmojiPickerOpen = ref(false)
 
+function closeEmojiPicker(): void {
+	isEmojiPickerOpen.value = false
+	document.removeEventListener('click', handleOutsideEmojiPickerClick)
+}
+
 function toggleEmojiPicker(): void {
 	isEmojiPickerOpen.value = !isEmojiPickerOpen.value
 
 	if (isEmojiPickerOpen.value) {
+		document.addEventListener('click', handleOutsideEmojiPickerClick)
 		nextTick(() => {
 			applyEmojiPickerScrollbarStyles()
 		})
+		return
 	}
+
+	document.removeEventListener('click', handleOutsideEmojiPickerClick)
 }
 
 function applyEmojiPickerScrollbarStyles(): void {
@@ -70,7 +79,7 @@ function onEmojiClick(event: Event): void {
 	}
 
 	emit('select', unicode)
-	isEmojiPickerOpen.value = false
+	closeEmojiPicker()
 }
 
 function handleOutsideEmojiPickerClick(event: MouseEvent): void {
@@ -90,12 +99,8 @@ function handleOutsideEmojiPickerClick(event: MouseEvent): void {
 		return
 	}
 
-	isEmojiPickerOpen.value = false
+	closeEmojiPicker()
 }
-
-onMounted(() => {
-	document.addEventListener('click', handleOutsideEmojiPickerClick)
-})
 
 onBeforeUnmount(() => {
 	document.removeEventListener('click', handleOutsideEmojiPickerClick)

@@ -23,6 +23,13 @@ function toggleUserMenu(): void {
   isUserMenuOpen.value = !isUserMenuOpen.value
 }
 
+function handleUserMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    toggleUserMenu()
+  }
+}
+
 function handleDocumentClick(event: MouseEvent): void {
   if (!isUserMenuOpen.value) {
     return
@@ -99,8 +106,10 @@ onBeforeUnmount(() => {
         class="size-10 cursor-pointer"
         role="button"
         aria-label="Abrir menu do usuario"
+        :aria-expanded="isUserMenuOpen"
         tabindex="0"
         @click="toggleUserMenu"
+        @keydown="handleUserMenuKeydown"
       >
         <AvatarImage :src="authStore.user?.avatarUrl ?? ''" alt="profile-picture" />
         <AvatarFallback class="border border-text-color-25/30">{{ userInitials }}</AvatarFallback>
@@ -108,7 +117,7 @@ onBeforeUnmount(() => {
 
       <div
         v-if="isUserMenuOpen"
-        class="absolute right-0 top-15 z-10 min-w-36 rounded-md border border-text-color-25/20 bg-white p-2 shadow-lg"
+        class="absolute right-0 top-[3.75rem] z-10 min-w-36 rounded-md border border-text-color-25/20 bg-white p-2 shadow-lg"
       >
         <UpdateAvatar />
 
@@ -118,10 +127,9 @@ onBeforeUnmount(() => {
           :disabled="isLoggingOut"
           @click="handleLogout"
         >
-          {{ isLoggingOut ? 'Saindo...' : '' }}
           <div class="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-log-out-icon lucide-log-out"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>
-            Logout
+            {{ isLoggingOut ? 'Saindo...' : 'Logout' }}
           </div>
         </button>
       </div>

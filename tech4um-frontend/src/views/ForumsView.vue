@@ -315,7 +315,7 @@ watch(
     <p class="font-bold text-lg text-text-color-54">Sobre o que gostaria de falar hoje?</p>
   </div>
 
-  <div class="md:flex md:flex-items md:gap-4">
+  <div class="md:flex md:items-center md:gap-4">
     <div class="mb-2 mb-2 min-w-0 flex-1">
       <form class="relative w-full" @submit.prevent="handleSearchSubmit">
         <Input
@@ -407,7 +407,7 @@ watch(
           {{ forum.description || 'Sem descricao cadastrada.' }}
         </p>
 
-        <div class="flex flex-items justify-between">
+        <div class="flex items-center justify-between">
           <div :class="['text-xs text-text-color-54', forum.messagesCount >= 10 ? 'flex items-center' : '']">
             <p class="mr-1">Criado por:</p>
             <p class="font-bold">{{ forum.creatorName }}</p>
