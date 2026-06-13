@@ -117,7 +117,7 @@ onBeforeUnmount(() => {
 
       <div
         v-if="isUserMenuOpen"
-        class="absolute right-0 top-[3.75rem] z-10 min-w-36 rounded-md border border-text-color-25/20 bg-white p-2 shadow-lg"
+        class="absolute right-0 top-[3.75rem] z-10 min-w-42 rounded-md border border-text-color-25/20 bg-white p-2 shadow-lg"
       >
         <UpdateAvatar />
 
