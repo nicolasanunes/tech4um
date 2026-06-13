@@ -15,6 +15,7 @@ import { ForumsService } from './forums.service';
 import { CreateForumDto } from './dtos/create-forum.dto';
 import { LoginPayloadDto } from '../auth/dtos/login-payload.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { ListForumsQueryDto } from './dtos/list-forums-query.dto';
 
@@ -33,6 +34,7 @@ export class ForumsController {
   }
 
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   @ResponseMessage('Forums listados com sucesso')
   async listAllForums(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -41,6 +43,7 @@ export class ForumsController {
     @Query('name') name?: string,
     @Query('creatorName') creatorName?: string,
     @Query('sort') sort?: ListForumsQueryDto['sort'],
+    @Req() request?: Request & { user?: LoginPayloadDto },
   ) {
     const query: ListForumsQueryDto = {
       page,
@@ -51,7 +54,10 @@ export class ForumsController {
       sort,
     };
 
-    return this.forumsService.listAllForums(query);
+    const viewerUserId =
+      request?.user?.id != null ? Number(request.user.id) : undefined;
+
+    return this.forumsService.listAllForums(query, viewerUserId);
   }
 
   @Get(':id')

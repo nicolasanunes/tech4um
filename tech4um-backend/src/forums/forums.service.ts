@@ -96,7 +96,7 @@ export class ForumsService {
 		}
 	}
 
-	async listAllForums(query: ListForumsQueryDto): Promise<{
+	async listAllForums(query: ListForumsQueryDto, viewerUserId?: number): Promise<{
 		items: ListForumItemDto[];
 		page: number;
 		pageSize: number;
@@ -132,6 +132,27 @@ export class ForumsService {
 		}
 
 		const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+		const filterParams = [...params];
+		const hasViewer = Number.isFinite(viewerUserId) && Number(viewerUserId) > 0;
+		const viewerParamPosition = hasViewer ? p++ : null;
+
+		if (hasViewer) {
+			params.push(Number(viewerUserId));
+		}
+
+		const unreadPrivateSelect = hasViewer && viewerParamPosition != null
+			? `EXISTS (
+				SELECT 1
+				FROM messages pm
+				LEFT JOIN forum_participants fp
+					ON fp."forumId" = f.id
+					AND fp."userId" = $${viewerParamPosition}
+				WHERE pm."forumId" = f.id
+					AND pm.is_private = true
+					AND pm."recipientId" = $${viewerParamPosition}
+					AND pm."createdAt" > COALESCE(fp."lastReadAt", TO_TIMESTAMP(0))
+			)`
+			: 'false';
 
 		const manager = this.forumsRepository.manager;
 
@@ -140,7 +161,7 @@ export class ForumsService {
 			 FROM forums f
 			 LEFT JOIN users c ON c.id = f."creatorId"
 			 ${where}`,
-			params,
+			filterParams,
 		);
 
 		const total = Number(countResult[0]?.total ?? 0);
@@ -154,6 +175,7 @@ export class ForumsService {
 			messagesCount: string;
 			participantsCount: string;
 			createdAt: string;
+			hasUnreadPrivateMessages: boolean;
 		}[]>(
 			`SELECT
 				f.id                        AS id,
@@ -161,9 +183,10 @@ export class ForumsService {
 				f.description               AS description,
 				c.username                  AS "creatorName",
 				last_msg.username           AS "lastCommentAuthorName",
-				(SELECT COUNT(*) FROM messages m   WHERE m."forumId" = f.id)::int AS "messagesCount",
+				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id AND m.is_private = false)::int AS "messagesCount",
 				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
-				f."createdAt"              AS "createdAt"
+				f."createdAt"              AS "createdAt",
+				${unreadPrivateSelect}      AS "hasUnreadPrivateMessages"
 			 FROM forums f
 			 LEFT JOIN users c ON c.id = f."creatorId"
 			 LEFT JOIN LATERAL (
@@ -189,12 +212,17 @@ export class ForumsService {
 			messagesCount: Number(row.messagesCount ?? 0),
 			participantsCount: Number(row.participantsCount ?? 0),
 			createdAt: new Date(row.createdAt),
+			hasUnreadPrivateMessages: Boolean(row.hasUnreadPrivateMessages),
 		}));
 
 		return { items, page, pageSize, total };
 	}
 
 	async listForumById(id: number, viewerUserId?: number): Promise<ListForumByIdResponseDto> {
+		if (viewerUserId != null && Number.isFinite(viewerUserId)) {
+			await this.markForumAsRead(id, Number(viewerUserId));
+		}
+
 		const forum = await this.forumsRepository.findOne({
 			where: { id },
 			relations: {
@@ -290,7 +318,7 @@ export class ForumsService {
 				f.description               AS description,
 				c.username                  AS "creatorName",
 				last_msg.username           AS "lastCommentAuthorName",
-				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id)::int AS "messagesCount",
+				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id AND m.is_private = false)::int AS "messagesCount",
 				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
 				f."createdAt"              AS "createdAt"
 			 FROM forums f
@@ -332,7 +360,7 @@ export class ForumsService {
 				f.description               AS description,
 				c.username                  AS "creatorName",
 				last_msg.username           AS "lastCommentAuthorName",
-				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id)::int AS "messagesCount",
+				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id AND m.is_private = false)::int AS "messagesCount",
 				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
 				f."createdAt"              AS "createdAt"
 			 FROM forums f
@@ -396,6 +424,7 @@ export class ForumsService {
 			forum,
 			user,
 			lastInteraction: new Date(),
+			lastReadAt: new Date(),
 		});
 
 		await this.participantsRepository.save(participant);
@@ -413,6 +442,22 @@ export class ForumsService {
 			{ id: forumId },
 			{ participantsCount: participantsTotal },
 		);
+	}
+
+	private async markForumAsRead(forumId: number, userId: number): Promise<void> {
+		const participant = await this.participantsRepository.findOne({
+			where: {
+				forum: { id: forumId },
+				user: { id: userId },
+			},
+		});
+
+		if (!participant) {
+			return;
+		}
+
+		participant.lastReadAt = new Date();
+		await this.participantsRepository.save(participant);
 	}
 
 	private async resolveForumAndUser(
@@ -559,6 +604,7 @@ export class ForumsService {
 			messagesCount: Number(row.messagesCount ?? 0),
 			participantsCount: Number(row.participantsCount ?? 0),
 			createdAt: new Date(row.createdAt),
+			hasUnreadPrivateMessages: false,
 		};
 	}
 

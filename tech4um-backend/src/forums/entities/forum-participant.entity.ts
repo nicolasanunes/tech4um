@@ -37,5 +37,11 @@ export class ForumParticipant {
     nullable: true,
     })
     declare lastInteraction?: Date;
+
+    @Column({
+    type: 'timestamp',
+    nullable: true,
+    })
+    declare lastReadAt?: Date;
 }
  

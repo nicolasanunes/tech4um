@@ -7,4 +7,5 @@ export class ListForumItemDto {
   messagesCount!: number;
   participantsCount!: number;
   createdAt!: Date;
+  hasUnreadPrivateMessages!: boolean;
 }

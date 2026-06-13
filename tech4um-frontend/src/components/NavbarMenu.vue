@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
         <path d="M154 32.3453V80.5217H140.473V53.9393L131.293 80.5217H119.974L110.726 53.7342V80.5217H97.1986V32.3453H113.556L125.772 63.6429L137.712 32.3453H154Z" fill="#1772B3"/>
       </svg>
     </RouterLink>
-    <p  class="text-text-color-25">Seu fórum sobre tecnologia!</p>
+    <p class="hidden sm:flex text-xs text-text-color-25 sm:text-base">Seu fórum sobre tecnologia!</p>
     </div>
     <div ref="userMenuContainerRef" v-if="authStore.isAuthenticated" class="relative flex items-center gap-4">
       <div class="text-text-color-54">

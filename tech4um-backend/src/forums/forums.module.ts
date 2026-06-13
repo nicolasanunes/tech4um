@@ -7,6 +7,7 @@ import { Forum } from './entities/forum.entity';
 import { ForumParticipant } from './entities/forum-participant.entity';
 import { User } from '../users/entities/user.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { ForumsGateway } from './forums.gateway';
 import { Message } from '../messages/entities/message.entity';
  
@@ -18,7 +19,7 @@ import { Message } from '../messages/entities/message.entity';
     }),
   ],
   controllers: [ForumsController],
-  providers: [ForumsService, JwtAuthGuard, ForumsGateway],
+  providers: [ForumsService, JwtAuthGuard, OptionalJwtAuthGuard, ForumsGateway],
 })
 export class ForumsModule {}
  

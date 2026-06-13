@@ -148,10 +148,13 @@ const isForumIdValid = computed(
 )
 
 const me = computed(() => authStore.user)
+const isLargeScreen = ref(false)
 
 const activeTypingName = computed(() => {
 	return typingUsers.value[0] ?? ''
 })
+
+let largeScreenMediaQuery: MediaQueryList | null = null
 
 function getTypingUsername(payload: TypingPayload): string {
 	return (
@@ -160,6 +163,41 @@ function getTypingUsername(payload: TypingPayload): string {
 		payload.authorName ??
 		''
 	).trim()
+}
+
+function handleLargeScreenBreakpointChange(event: MediaQueryListEvent): void {
+	isLargeScreen.value = event.matches
+}
+
+function setupLargeScreenBreakpointWatcher(): void {
+	if (typeof window === 'undefined') {
+		return
+	}
+
+	largeScreenMediaQuery = window.matchMedia('(min-width: 1024px)')
+	isLargeScreen.value = largeScreenMediaQuery.matches
+
+	if (typeof largeScreenMediaQuery.addEventListener === 'function') {
+		largeScreenMediaQuery.addEventListener('change', handleLargeScreenBreakpointChange)
+		return
+	}
+
+	largeScreenMediaQuery.addListener(handleLargeScreenBreakpointChange)
+}
+
+function teardownLargeScreenBreakpointWatcher(): void {
+	if (!largeScreenMediaQuery) {
+		return
+	}
+
+	if (typeof largeScreenMediaQuery.removeEventListener === 'function') {
+		largeScreenMediaQuery.removeEventListener('change', handleLargeScreenBreakpointChange)
+		largeScreenMediaQuery = null
+		return
+	}
+
+	largeScreenMediaQuery.removeListener(handleLargeScreenBreakpointChange)
+	largeScreenMediaQuery = null
 }
 
 function getMessageInputElement(): HTMLInputElement | null {
@@ -304,6 +342,14 @@ function isOwnMessage(message: ForumMessage): boolean {
 		return false
 	}
 	return message.authorName === me.value.username
+}
+
+function isCurrentUserParticipant(participant: ForumParticipant): boolean {
+	if (!me.value) {
+		return false
+	}
+
+	return participant.username.trim().toLowerCase() === me.value.username.trim().toLowerCase()
 }
 
 function formatMessageTime(value: string): string {
@@ -707,6 +753,8 @@ watch(
 )
 
 onMounted(async () => {
+	setupLargeScreenBreakpointWatcher()
+
 	if (!isForumIdValid.value) {
 		await router.replace('/forums')
 		return
@@ -718,6 +766,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+	teardownLargeScreenBreakpointWatcher()
+
 	emitTypingStop()
 	clearTypingTimeout()
 
@@ -732,7 +782,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<div class="h-[calc(100vh-10rem)]">
+	<div class="h-auto lg:h-[calc(100vh-10rem)]">
 		<div class="mb-3 flex items-center justify-between">
       <Button class="text-text-color-54 cursor-pointer bg-transparent hover:bg-transparent hover:text-text-color-25" @click="$router.push('/forums')">
         <p class="flex items-center gap-1">
@@ -747,10 +797,10 @@ onBeforeUnmount(() => {
 			<aside
 				:aria-hidden="!isParticipantsVisible"
 				:class="[
-					'participants-panel min-w-0 overflow-hidden rounded-xl border border-border bg-background-color shadow-sm transition-[opacity,transform] duration-300 ease-in-out',
+					'participants-panel order-1 min-w-0 overflow-hidden rounded-xl border border-border bg-background-color shadow-sm transition-[max-height,opacity,transform] duration-300 ease-in-out',
 					isParticipantsVisible
-						? 'translate-x-0 opacity-100 pointer-events-auto'
-						: '-translate-x-8 opacity-0 pointer-events-none',
+						? 'max-h-[40rem] lg:max-h-none translate-y-0 lg:translate-y-0 lg:translate-x-0 opacity-100 pointer-events-auto'
+						: 'max-h-0 lg:max-h-none -translate-y-4 lg:translate-y-0 lg:-translate-x-8 opacity-0 pointer-events-none',
 				]"
 			>
 				<div class="mb-3 flex items-center justify-between rounded-t-xl px-4 py-6 shadow-md rounded-b-none">
@@ -773,7 +823,10 @@ onBeforeUnmount(() => {
               <AvatarFallback class="border border-text-color-25/30">{{ getUserInitials(participant.username) }}</AvatarFallback>
             </Avatar>
 						<p class="truncate text-sm text-text-color-54">{{ participant.username }}</p>
-						<span class="pointer-events-none opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+						<span
+							v-if="!isCurrentUserParticipant(participant)"
+							class="pointer-events-none opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+						>
 							<svg @click="setPrivateRecipient(participant)" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cursor-pointer text-primary-dark-color transition-colors hover:text-primary-default-color"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
 						</span>
 					</li>
@@ -783,7 +836,7 @@ onBeforeUnmount(() => {
 				</p>
 			</aside>
 
-			<section class="relative flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-background-color shadow-sm">
+			<section class="order-2 relative flex h-[calc(100dvh-10rem)] min-h-0 min-w-0 flex-col rounded-xl border border-border bg-background-color shadow-sm lg:h-full">
 				<header class="flex items-center justify-between border-b border-border shadow-md px-4 py-5">
           <div class="flex flex-items gap-4">
 						<button
@@ -796,9 +849,9 @@ onBeforeUnmount(() => {
               <svg v-if="isParticipantsVisible" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left"><path d="m15 18-6-6 6-6"/></svg>
               <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>
 						</button>
-            <h1 class="text-2xl font-bold text-primary-dark-color">{{ forumName || 'Forum' }}</h1>
+            <h1 class="text-base md:text-xl lg:text-xl xl:text-2xl font-bold text-primary-dark-color">{{ forumName || 'Forum' }}</h1>
           </div>
-          <div class="flex items-center gap-1 text-md text-primary-dark-color">
+          <div class="md:flex items-center gap-1 text-xs md:text-sm xl:text-md text-primary-dark-color">
             <p>Criado por:</p>
             <p class="font-bold">{{ forumCreatorName || '-' }}</p>
           </div>
@@ -887,7 +940,7 @@ onBeforeUnmount(() => {
 							v-model="messageInput"
 							class="h-12 bg-white rounded-full"
 							type="text"
-							placeholder="Escreva aqui uma mensagem maneira para mandar para os colegas..."
+							:placeholder="isLargeScreen ? 'Escreva aqui uma mensagem maneira para mandar para os colegas...' : 'Escreva aqui uma mensagem...'"
 							@input="handleTypingInput"
 							@blur="emitTypingStop"
 						@keydown="handleInputKeydown"
@@ -918,10 +971,10 @@ onBeforeUnmount(() => {
 				</div>
 			</section>
 
-			<aside>
+			<aside class="order-3">
 				<div v-if="isLoadingForums" class="text-sm text-text-color-54">Carregando...</div>
 
-				<div v-else class="space-y-2">
+				<div v-else class="grid grid-cols-2 gap-2 lg:grid-cols-1">
 					<button
 						v-for="forum in otherForums"
 						:key="forum.id"
