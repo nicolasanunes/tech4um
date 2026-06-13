@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ForumsService } from './forums.service';
@@ -13,9 +14,19 @@ import { Message } from '../messages/entities/message.entity';
  
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([Forum, ForumParticipant, User, Message]),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const secret = configService.get<string>('JWT_SECRET');
+
+        if (!secret) {
+          throw new Error('JWT_SECRET is required');
+        }
+
+        return { secret };
+      },
     }),
   ],
   controllers: [ForumsController],

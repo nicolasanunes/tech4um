@@ -17,9 +17,12 @@ export class OptionalJwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<LoginPayloadDto>(token, {
-        secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
-      });
+      const payload = await this.jwtService.verifyAsync<LoginPayloadDto>(token);
+
+      if (payload.tokenType !== 'access') {
+        request.user = undefined;
+        return true;
+      }
 
       request.user = payload;
       return true;

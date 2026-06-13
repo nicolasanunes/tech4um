@@ -10,7 +10,7 @@ import {
 
 import { User } from '../../users/entities/user.entity';
 import { ForumParticipant } from './forum-participant.entity';
-import { Message } from 'src/messages/entities/message.entity';
+import { Message } from '../../messages/entities/message.entity';
 
 @Entity('forums')
 export class Forum {

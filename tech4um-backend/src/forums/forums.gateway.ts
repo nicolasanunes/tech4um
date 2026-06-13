@@ -34,7 +34,7 @@ interface SendPrivateMessagePayload {
   namespace: 'chat',
   maxHttpBufferSize: 8 * 1024 * 1024,
   cors: {
-    origin: process.env.FRONTEND_URL ?? true,
+    origin: true,
     credentials: true,
   },
 })
@@ -60,9 +60,13 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<LoginPayloadDto>(token, {
-        secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
-      });
+      const payload = await this.jwtService.verifyAsync<LoginPayloadDto>(token);
+
+      if (payload.tokenType !== 'access') {
+        client.emit('chat_error', { message: 'Token invalido ou expirado' });
+        client.disconnect();
+        return;
+      }
 
       this.socketUsers.set(client.id, payload);
     } catch {
@@ -257,8 +261,14 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<void> {
     const user = this.socketUsers.get(client.id);
     const forumId = Number(payload?.forumId);
+    const activeForumId = this.socketRoom.get(client.id);
 
-    if (!user || !Number.isFinite(forumId) || forumId <= 0) {
+    if (
+      !user ||
+      !Number.isFinite(forumId) ||
+      forumId <= 0 ||
+      activeForumId !== forumId
+    ) {
       return;
     }
 
@@ -279,8 +289,14 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<void> {
     const user = this.socketUsers.get(client.id);
     const forumId = Number(payload?.forumId);
+    const activeForumId = this.socketRoom.get(client.id);
 
-    if (!user || !Number.isFinite(forumId) || forumId <= 0) {
+    if (
+      !user ||
+      !Number.isFinite(forumId) ||
+      forumId <= 0 ||
+      activeForumId !== forumId
+    ) {
       return;
     }
 

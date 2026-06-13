@@ -1,98 +1,167 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Tech4UM Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API backend da plataforma Tech4UM, responsável por autenticação, gestão de usuários, fóruns, mensagens e comunicação em tempo real.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## O que este backend faz
 
-## Description
+- Cria e autentica usuários com JWT em cookies httpOnly.
+- Expõe endpoints para criação e leitura de fóruns.
+- Permite atualização de avatar do usuário autenticado.
+- Gerencia mensagens públicas e privadas dentro dos fóruns.
+- Entrega chat em tempo real com Socket.IO (namespace chat).
+- Retorna respostas padronizadas (success/error) com interceptor e filter globais.
+- Aplica validação global de payloads com ValidationPipe.
+- Aplica proteção de taxa (throttling) para endpoints sensíveis.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Tecnologias principais
 
-## Project setup
+- Node.js + TypeScript
+- NestJS
+- TypeORM
+- PostgreSQL
+- Socket.IO
+- JWT
+- class-validator + class-transformer
+- cookie-parser
+- Helmet
+- Jest (testes)
+
+## Estrutura de módulos
+
+- auth: login, logout, refresh e sessão atual.
+- users: cadastro e atualização de avatar.
+- forums: criação/listagem de fóruns e gateway de chat.
+- messages: módulo de mensagens (suporte às entidades/fluxo de chat).
+- common: interceptor de resposta e filtro de exceções HTTP.
+
+## Pré-requisitos
+
+- Node.js 20+
+- npm 10+
+- PostgreSQL em execução
+
+## Banco de dados
+
+O backend utiliza PostgreSQL com TypeORM.
+
+### Configuração esperada
+
+As variáveis de conexão são:
+
+- DB_HOST
+- DB_PORT
+- DB_USERNAME
+- DB_PASSWORD
+- DB_DATABASE
+- DB_SSL
+
+Em ambiente local, o projeto está preparado para usar DB_SSL=false.
+
+### Como subir o banco localmente
+
+Opcao 1: usando PostgreSQL já instalado na máquina.
+
+1. Crie o banco:
+
+	createdb tech4um
+
+2. Garanta que o usuário e senha configurados no .env tenham acesso ao banco.
+
+Opcao 2: usando Docker.
+
+1. Suba um container PostgreSQL:
+
+	docker run --name tech4um-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=tech4um -p 5432:5432 -d postgres:16
+
+2. Mantenha o .env alinhado com os mesmos valores.
+
+### Sincronização do schema
+
+- TYPEORM_SYNCHRONIZE=true: recomendado apenas para desenvolvimento local.
+- TYPEORM_SYNCHRONIZE=false: recomendado para produção.
+
+Quando TYPEORM_SYNCHRONIZE=true, o TypeORM cria/ajusta tabelas automaticamente com base nas entidades.
+
+## Como rodar localmente
+
+### 1) Instale as dependências
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Compile and run the project
+### 2) Configure as variáveis de ambiente
+
+Crie um arquivo .env na raiz de tech4um-backend com os valores abaixo:
+
+```env
+NODE_ENV=development
+PORT=3000
+
+# Frontend permitido no CORS (opcional)
+FRONTEND_URL=http://localhost:5173
+
+# JWT
+JWT_SECRET=change-this-secret
+
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+DB_DATABASE=tech4um
+
+# TypeORM
+TYPEORM_SYNCHRONIZE=true
+TYPEORM_LOGGING=false
+DB_SSL=false
+```
+
+Observacao: em producao, use TYPEORM_SYNCHRONIZE=false.
+
+### 3) Inicie em modo desenvolvimento
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run start:dev
 ```
 
-## Run tests
+Servidor padrao: http://localhost:3000
+
+## Scripts úteis
 
 ```bash
-# unit tests
-$ npm run test
+# build
+npm run build
 
-# e2e tests
-$ npm run test:e2e
+# start normal
+npm run start
 
-# test coverage
-$ npm run test:cov
+# start producao
+npm run start:prod
+
+# lint
+npm run lint
+
+# testes unitarios
+npm run test
+
+# testes e2e
+npm run test:e2e
+
+# cobertura
+npm run test:cov
 ```
 
-## Deployment
+## Testes
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Para rodar testes de forma sequencial (útil para debug):
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm test -- --runInBand
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Integração com frontend
 
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- O frontend usa cookies com credenciais.
+- Certifique-se de manter withCredentials no cliente HTTP/Socket.
+- Se estiver acessando por IP da rede local, ajuste FRONTEND_URL conforme necessário.

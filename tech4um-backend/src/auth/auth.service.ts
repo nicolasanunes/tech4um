@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dtos/login.dto';
 import { LoginResponseDto } from './dtos/login-response.dto';
 import { LoginPayloadDto } from './dtos/login-payload.dto';
-import { ListUserDto } from '../users/dtos/list-user.dto';
 import { UsersService } from '../users/users.service';
 import { Request, Response } from 'express';
 import { User } from '../users/entities/user.entity';
@@ -113,7 +112,7 @@ export class AuthService {
 
     const payload = await this.verifyToken(refreshToken).catch(() => null);
 
-    if (!payload) {
+    if (!payload || payload.tokenType !== 'refresh') {
       throw new UnauthorizedException('Sessao expirada');
     }
 
@@ -137,28 +136,36 @@ export class AuthService {
   }
 
   private async createAuthTokens(user: User): Promise<AuthTokens> {
-    const payload: LoginPayloadDto = {
+    const basePayload = {
       id: user.id,
       username: user.username,
       email: user.email,
-    };
+    } satisfies Omit<LoginPayloadDto, 'tokenType'>;
 
-    const accessToken = await this.jwtService.signAsync(payload, {
-      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
+    const accessToken = await this.jwtService.signAsync(
+      {
+        ...basePayload,
+        tokenType: 'access' as const,
+      },
+      {
       expiresIn: AuthService.ACCESS_TOKEN_EXPIRES_IN,
-    });
+      },
+    );
 
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
+    const refreshToken = await this.jwtService.signAsync(
+      {
+        ...basePayload,
+        tokenType: 'refresh' as const,
+      },
+      {
       expiresIn: AuthService.REFRESH_TOKEN_EXPIRES_IN,
-    });
+      },
+    );
 
     return { accessToken, refreshToken };
   }
 
   private async verifyToken(token: string): Promise<LoginPayloadDto> {
-    return this.jwtService.verifyAsync<LoginPayloadDto>(token, {
-      secret: process.env.JWT_SECRET ?? 'dev-jwt-secret',
-    });
+    return this.jwtService.verifyAsync<LoginPayloadDto>(token);
   }
 }

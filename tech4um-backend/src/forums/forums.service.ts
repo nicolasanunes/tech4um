@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ConflictException,
+	Injectable,
+	NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { Forum } from './entities/forum.entity';
@@ -496,7 +501,7 @@ export class ForumsService {
 		const normalizedImageUrl = `${imageUrl ?? ''}`.trim() || null;
 
 		if (!normalizedText && !normalizedImageUrl) {
-			throw new NotFoundException('Mensagem invalida');
+			throw new BadRequestException('Mensagem invalida');
 		}
 
 		const message = this.messagesRepository.create({
@@ -554,7 +559,7 @@ export class ForumsService {
 		const normalizedImageUrl = `${imageUrl ?? ''}`.trim() || null;
 
 		if (!normalizedText && !normalizedImageUrl) {
-			throw new NotFoundException('Mensagem invalida');
+			throw new BadRequestException('Mensagem invalida');
 		}
 
 		const message = this.messagesRepository.create({

@@ -37,6 +37,8 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @ResponseMessage('Logout realizado com sucesso')
   async logout(@Res({ passthrough: true }) response: Response) {
     return this.authService.logout(response);
@@ -44,6 +46,8 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @ResponseMessage('Tokens renovados com sucesso')
   async refresh(
     @Req() request: Request,
