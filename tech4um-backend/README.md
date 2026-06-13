@@ -59,7 +59,7 @@ Em ambiente local, o projeto está preparado para usar DB_SSL=false.
 
 ### Como subir o banco localmente
 
-Opcao 1: usando PostgreSQL já instalado na máquina.
+Opção 1: usando PostgreSQL já instalado na máquina.
 
 1. Crie o banco:
 
@@ -67,7 +67,7 @@ Opcao 1: usando PostgreSQL já instalado na máquina.
 
 2. Garanta que o usuário e senha configurados no .env tenham acesso ao banco.
 
-Opcao 2: usando Docker.
+Opção 2: usando Docker.
 
 1. Suba um container PostgreSQL:
 
@@ -117,7 +117,7 @@ TYPEORM_LOGGING=false
 DB_SSL=false
 ```
 
-Observacao: em producao, use TYPEORM_SYNCHRONIZE=false.
+Observação: em produção, use TYPEORM_SYNCHRONIZE=false.
 
 ### 3) Inicie em modo desenvolvimento
 
@@ -125,7 +125,7 @@ Observacao: em producao, use TYPEORM_SYNCHRONIZE=false.
 npm run start:dev
 ```
 
-Servidor padrao: http://localhost:3000
+Servidor padrão: http://localhost:3000
 
 ## Scripts úteis
 
@@ -136,13 +136,13 @@ npm run build
 # start normal
 npm run start
 
-# start producao
+# start produção
 npm run start:prod
 
 # lint
 npm run lint
 
-# testes unitarios
+# testes unitários
 npm run test
 
 # testes e2e

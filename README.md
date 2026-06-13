@@ -2,11 +2,11 @@
 
 Monorepo da plataforma Tech4UM com frontend, backend e banco de dados PostgreSQL.
 
-Este projeto foi desenvolvido com Docker como fluxo principal de desenvolvimento local e replicacao de ambiente.
+Este projeto foi desenvolvido com Docker como fluxo principal de desenvolvimento local e replicação de ambiente.
 
-## Visao geral da arquitetura
+## Visão geral da arquitetura
 
-- tech4um-frontend: aplicacao Vue 3 + Vite (porta 5173)
+- tech4um-frontend: aplicação Vue 3 + Vite (porta 5173)
 - tech4um-backend: API NestJS (porta 3000)
 - tech4um-db: PostgreSQL 17 (porta 5432)
 
@@ -17,7 +17,7 @@ Estrutura da raiz:
 - docker-compose.yaml
 - .env.example
 
-## Pre-requisitos
+## Pré-requisitos
 
 Fluxo recomendado (Docker):
 
@@ -30,7 +30,7 @@ Fluxo alternativo (sem Docker):
 - npm 10+
 - PostgreSQL 17+
 
-## Configuracao do ambiente
+## Configuração do ambiente
 
 1. Na raiz do projeto, crie o arquivo .env a partir do exemplo.
 
@@ -48,7 +48,7 @@ Copy-Item .env.example .env
 
 2. Edite o .env com os valores do seu ambiente.
 
-Variaveis minimas:
+Variáveis mínimas:
 
 ```env
 # App / Backend
@@ -67,7 +67,7 @@ DB_PASSWORD=postgres
 TYPEORM_SYNCHRONIZE=true
 TYPEORM_LOGGING=true
 
-# Seguranca (obrigatoria)
+# Segurança (obrigatória)
 JWT_SECRET=change-this-secret
 
 # Opcional
@@ -77,7 +77,7 @@ FRONTEND_URL=http://localhost:5173
 
 Importante:
 
-- JWT_SECRET e obrigatoria para o backend iniciar.
+- JWT_SECRET é obrigatório para o backend iniciar.
 - Com Docker Compose, mantenha DB_HOST=tech4um-db.
 - Sem Docker (backend local), normalmente use DB_HOST=localhost.
 
@@ -89,13 +89,13 @@ Na raiz do projeto:
 docker compose up --build
 ```
 
-Servicos disponiveis:
+Serviços disponíveis:
 
 - Frontend: http://localhost:5173
 - Backend: http://localhost:3000
 - PostgreSQL: localhost:5432
 
-Comandos uteis Docker:
+Comandos úteis Docker:
 
 ```bash
 # subir em background
@@ -115,7 +115,7 @@ docker compose down -v
 
 ### 1) Suba o PostgreSQL local
 
-- Garanta uma instancia PostgreSQL em execucao.
+- Garanta uma instância PostgreSQL em execução.
 - Ajuste .env da raiz para DB_HOST=localhost e credenciais corretas.
 
 ### 2) Inicie o backend
@@ -140,26 +140,26 @@ npm run dev -- --host
 
 Frontend em http://localhost:5173
 
-## Validacao rapida do ambiente
+## Validação rápida do ambiente
 
 1. Acesse http://localhost:5173
 2. Verifique se o frontend comunica com o backend em http://localhost:3000
-3. Confirme que o backend conectou ao PostgreSQL sem erro de autenticacao
+3. Confirme que o backend conectou ao PostgreSQL sem erro de autenticação.
 
-## Solucao de problemas comuns
+## Solução de problemas comuns
 
-- Erro de conexao com banco no backend:
-	- confira DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD e DB_DATABASE
+- Erro de conexão com banco no backend:
+	- confira DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD e DB_DATABASE.
 	- em Docker Compose, use DB_HOST=tech4um-db
 
 - Erro de JWT_SECRET ausente:
 	- adicione JWT_SECRET no .env da raiz
 
 - Frontend sem comunicar com backend em rede local:
-	- use o IP da maquina no frontend, por exemplo VITE_API_URL=http://192.168.x.x:3000
-	- confirme se backend esta acessivel nessa mesma origem/porta
+	- use o IP da máquina no frontend, por exemplo VITE_API_URL=http://192.168.x.x:3000.
+	- confirme se o backend está acessível nessa mesma origem/porta.
 
-## Comandos uteis por modulo
+## Comandos úteis por módulo
 
 Backend:
 
@@ -180,7 +180,7 @@ npm run type-check
 npm run build
 ```
 
-## Documentacao por modulo
+## Documentação por módulo
 
 - Backend detalhado: tech4um-backend/README.md
 - Frontend detalhado: tech4um-frontend/README.md

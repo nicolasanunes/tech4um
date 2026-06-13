@@ -1,15 +1,15 @@
 # Tech4UM Frontend
 
-Aplicacao frontend da plataforma Tech4UM, responsavel pela interface de autenticacao, navegacao entre foruns, chat em tempo real e interacoes do usuario.
+Aplicação frontend da plataforma Tech4UM, responsável pela interface de autenticação, navegação entre fóruns, chat em tempo real e interações do usuário.
 
 ## O que este frontend faz
 
-- Realiza login e sessao do usuario com cookies httpOnly no backend.
-- Lista, pesquisa e organiza foruns com interface responsiva.
+- Realiza login e sessão do usuário com cookies httpOnly no backend.
+- Lista, pesquisa e organiza fóruns com interface responsiva.
 - Exibe tela de conversa com mensagens em tempo real via Socket.IO.
-- Permite envio de mensagens publicas e privadas no contexto do forum.
-- Exibe participantes online e funcionalidades de interacao no chat.
-- Gerencia estado global de autenticacao com Pinia.
+- Permite envio de mensagens públicas e privadas no contexto do fórum.
+- Exibe participantes online e funcionalidades de interação no chat.
+- Gerencia estado global de autenticação com Pinia.
 
 ## Tecnologias principais
 
@@ -19,24 +19,24 @@ Aplicacao frontend da plataforma Tech4UM, responsavel pela interface de autentic
 - Pinia
 - Tailwind CSS 4
 - Socket.IO Client
-- Reka UI + utilitarios de estilo (CVA, clsx, tailwind-merge)
+- Reka UI + utilitários de estilo (CVA, clsx, tailwind-merge)
 - ESLint + Oxlint + Prettier
 
 ## Estrutura principal
 
-- src/views: telas principais (lista de foruns e chat).
-- src/components: componentes reutilizaveis da interface.
-- src/stores: estado global (autenticacao e modais).
-- src/lib: integracao HTTP com renovacao automatica de sessao.
-- src/router: configuracao de rotas da aplicacao.
+- src/views: telas principais (lista de fóruns e chat).
+- src/components: componentes reutilizáveis da interface.
+- src/stores: estado global (autenticação e modais).
+- src/lib: integração HTTP com renovação automática de sessão.
+- src/router: configuração de rotas da aplicação.
 
-## Pre-requisitos
+## Pré-requisitos
 
 - Node.js 20+
 - npm 10+
-- Backend Tech4UM em execucao
+- Backend Tech4UM em execução
 
-## Variaveis de ambiente
+## Variáveis de ambiente
 
 Crie um arquivo .env na raiz de tech4um-frontend:
 
@@ -44,12 +44,12 @@ Crie um arquivo .env na raiz de tech4um-frontend:
 VITE_API_URL=http://localhost:3000
 ```
 
-Observacao:
+Observação:
 - Em rede local (LAN), use o IP do backend, por exemplo: VITE_API_URL=http://192.168.1.20:3000
 
 ## Como rodar localmente
 
-### 1) Instale as dependencias
+### 1) Instale as dependências
 
 ```bash
 npm install
@@ -65,15 +65,15 @@ Crie o arquivo .env com VITE_API_URL apontando para o backend.
 npm run dev
 ```
 
-Servidor padrao: http://localhost:5173
+Servidor padrão: http://localhost:5173
 
-## Scripts uteis
+## Scripts úteis
 
 ```bash
 # desenvolvimento
 npm run dev
 
-# build de producao (type-check + bundle)
+# build de produção (type-check + bundle)
 npm run build
 
 # apenas build
@@ -94,12 +94,12 @@ npm run lint:oxlint
 # lint com eslint
 npm run lint:eslint
 
-# formatacao
+# formatação
 npm run format
 ```
 
-## Integracao com backend
+## Integração com backend
 
-- O frontend envia requisicoes com credentials include para suportar cookies de sessao.
+- O frontend envia requisições com credentials include para suportar cookies de sessão.
 - O backend deve estar com CORS habilitado para o host do frontend.
-- Para acesso via IP da rede local, ajuste VITE_API_URL para o endereco correto do backend.
+- Para acesso via IP da rede local, ajuste VITE_API_URL para o endereço correto do backend.
