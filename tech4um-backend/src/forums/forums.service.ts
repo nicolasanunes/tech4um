@@ -349,7 +349,43 @@ export class ForumsService {
 			return [this.mapForumItemRow(currentRows[0])];
 		}
 
-		const randomRows = await manager.query<{
+		const sidebarCandidates = await manager.query<
+			[{ minId: string | null; maxId: string | null; total: string }]
+		>(
+			`SELECT
+				MIN(f.id)::bigint AS "minId",
+				MAX(f.id)::bigint AS "maxId",
+				COUNT(*)::int     AS total
+			 FROM forums f
+			 WHERE f.id <> $1`,
+			[forumId],
+		);
+
+		const minId = Number(sidebarCandidates[0]?.minId ?? 0);
+		const maxId = Number(sidebarCandidates[0]?.maxId ?? 0);
+		const totalCandidates = Number(sidebarCandidates[0]?.total ?? 0);
+
+		if (
+			totalCandidates <= 0 ||
+			!Number.isFinite(minId) ||
+			!Number.isFinite(maxId) ||
+			minId > maxId
+		) {
+			return [this.mapForumItemRow(currentRows[0])];
+		}
+
+		const sampledIds = await this.sampleForumSidebarIds(
+			forumId,
+			safeCount,
+			minId,
+			maxId,
+		);
+
+		if (!sampledIds.length) {
+			return [this.mapForumItemRow(currentRows[0])];
+		}
+
+		const sampledRows = await manager.query<{
 			id: string;
 			name: string;
 			description: string | null;
@@ -378,16 +414,134 @@ export class ForumsService {
 				ORDER BY lm."createdAt" DESC, lm.id DESC
 				LIMIT 1
 			 ) last_msg ON true
-			 WHERE f.id <> $1
-			 ORDER BY RANDOM()
-			 LIMIT $2`,
-			[forumId, safeCount],
+			 WHERE f.id = ANY($1::bigint[])`,
+			[sampledIds],
 		);
+
+		const sampledRowsById = new Map<number, typeof sampledRows[number]>();
+		for (const row of sampledRows) {
+			sampledRowsById.set(Number(row.id), row);
+		}
+
+		const orderedSampledRows = sampledIds
+			.map((id) => sampledRowsById.get(id))
+			.filter((row): row is typeof sampledRows[number] => row != null);
 
 		return [
 			this.mapForumItemRow(currentRows[0]),
-			...randomRows.map((row) => this.mapForumItemRow(row)),
+			...orderedSampledRows.map((row) => this.mapForumItemRow(row)),
 		];
+	}
+
+	private async sampleForumSidebarIds(
+		excludedForumId: number,
+		requiredCount: number,
+		minId: number,
+		maxId: number,
+	): Promise<number[]> {
+		const target = Math.max(0, Math.floor(requiredCount));
+
+		if (!target || minId > maxId) {
+			return [];
+		}
+
+		const selected = new Set<number>();
+		const maxAttempts = Math.max(target * 8, 24);
+
+		for (let attempt = 0; attempt < maxAttempts && selected.size < target; attempt++) {
+			const remaining = target - selected.size;
+			const batchSize = Math.min(Math.max(remaining * 3, 8), 120);
+			const randomCandidates = this.generateRandomForumIdBatch(
+				minId,
+				maxId,
+				batchSize,
+				excludedForumId,
+				selected,
+			);
+
+			if (!randomCandidates.length) {
+				break;
+			}
+
+			const existingRows = await this.forumsRepository.manager.query<{ id: string }[]>(
+				`SELECT f.id::bigint AS id
+				 FROM forums f
+				 WHERE f.id = ANY($1::bigint[])
+				   AND f.id <> $2`,
+				[randomCandidates, excludedForumId],
+			);
+
+			for (const row of existingRows) {
+				selected.add(Number(row.id));
+				if (selected.size >= target) {
+					break;
+				}
+			}
+		}
+
+		if (selected.size < target) {
+			const missing = target - selected.size;
+			const fallbackRows = await this.forumsRepository.manager.query<{ id: string }[]>(
+				`SELECT f.id::bigint AS id
+				 FROM forums f
+				 WHERE f.id <> $1
+				   AND (
+					 COALESCE(array_length($2::bigint[], 1), 0) = 0
+					 OR NOT (f.id = ANY($2::bigint[]))
+				   )
+				 ORDER BY f.id DESC
+				 LIMIT $3`,
+				[excludedForumId, Array.from(selected), missing],
+			);
+
+			for (const row of fallbackRows) {
+				selected.add(Number(row.id));
+				if (selected.size >= target) {
+					break;
+				}
+			}
+		}
+
+		return this.shuffleNumbers(Array.from(selected)).slice(0, target);
+	}
+
+	private generateRandomForumIdBatch(
+		minId: number,
+		maxId: number,
+		batchSize: number,
+		excludedForumId: number,
+		alreadySelected: Set<number>,
+	): number[] {
+		const ids = new Set<number>();
+		const rangeSize = maxId - minId + 1;
+		const maxIterations = Math.max(batchSize * 3, 30);
+
+		if (rangeSize <= 1) {
+			return [];
+		}
+
+		for (let i = 0; i < maxIterations && ids.size < batchSize; i++) {
+			const randomId = Math.floor(Math.random() * rangeSize) + minId;
+
+			if (randomId === excludedForumId || alreadySelected.has(randomId)) {
+				continue;
+			}
+
+			ids.add(randomId);
+		}
+
+		return Array.from(ids);
+	}
+
+	private shuffleNumbers(values: number[]): number[] {
+		const copy = [...values];
+
+		for (let i = copy.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[copy[i], copy[j]] = [copy[j], copy[i]];
+		}
+
+		return copy;
 	}
 
 	async ensureForumParticipant(forumId: number, userId: number): Promise<void> {

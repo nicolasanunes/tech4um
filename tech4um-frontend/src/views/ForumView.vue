@@ -425,7 +425,30 @@ async function loadOtherForums(): Promise<void> {
 			throw new Error(data.message ?? 'Falha ao carregar foruns')
 		}
 
-		otherForums.value = data.data
+		const normalizedItems = (data.data ?? [])
+			.map((item) => ({
+				id: Number(item.id),
+				name: `${item.name ?? ''}`,
+				creatorName: `${item.creatorName ?? '-'}`,
+				lastCommentAuthorName: item.lastCommentAuthorName ?? null,
+				participantsCount: Number(item.participantsCount ?? 0),
+			}))
+			.filter((item) => Number.isFinite(item.id) && item.id > 0)
+
+		const uniqueById = new Map<number, ForumCardItem>()
+		for (const item of normalizedItems) {
+			if (!uniqueById.has(item.id)) {
+				uniqueById.set(item.id, item)
+			}
+		}
+
+		const uniqueItems = Array.from(uniqueById.values())
+		const currentItem = uniqueItems.find((item) => item.id === currentForumId.value)
+		const otherItems = uniqueItems
+			.filter((item) => item.id !== currentForumId.value)
+			.slice(0, 7)
+
+		otherForums.value = currentItem ? [currentItem, ...otherItems] : otherItems
 	} catch {
 		otherForums.value = []
 	}
