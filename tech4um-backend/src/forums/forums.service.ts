@@ -5,7 +5,7 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, Repository, SelectQueryBuilder } from 'typeorm';
 import { Forum } from './entities/forum.entity';
 import { CreateForumDto } from './dtos/create-forum.dto';
 import { User } from '../users/entities/user.entity';
@@ -110,68 +110,97 @@ export class ForumsService {
 		const page = Math.max(1, Number(query.page ?? 1));
 		const pageSize = Math.max(1, Math.min(Number(query.pageSize ?? 10), 100));
 		const skip = (page - 1) * pageSize;
-		const orderBy = this.resolveListForumsOrderBy(query.sort);
-
-		const conditions: string[] = [];
-		const params: unknown[] = [];
-		let p = 1;
-
-		if (query.search?.trim()) {
-			conditions.push(
-				`(f.name ILIKE $${p} OR f.description ILIKE $${p} OR c.username ILIKE $${p})`,
-			);
-			params.push(`%${query.search.trim()}%`);
-			p++;
-		}
-
-		if (query.name?.trim()) {
-			conditions.push(`f.name ILIKE $${p}`);
-			params.push(`%${query.name.trim()}%`);
-			p++;
-		}
-
-		if (query.creatorName?.trim()) {
-			conditions.push(`c.username ILIKE $${p}`);
-			params.push(`%${query.creatorName.trim()}%`);
-			p++;
-		}
-
-		const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-		const filterParams = [...params];
 		const hasViewer = Number.isFinite(viewerUserId) && Number(viewerUserId) > 0;
-		const viewerParamPosition = hasViewer ? p++ : null;
+		const normalizedViewerUserId = hasViewer ? Number(viewerUserId) : null;
 
-		if (hasViewer) {
-			params.push(Number(viewerUserId));
+		const baseQuery = this.forumsRepository
+			.createQueryBuilder('f')
+			.leftJoin('f.creator', 'c');
+
+		const search = query.search?.trim();
+		if (search) {
+			baseQuery.andWhere(
+				new Brackets((qb) => {
+					qb.where('f.name ILIKE :search', { search: `%${search}%` })
+						.orWhere('f.description ILIKE :search', { search: `%${search}%` })
+						.orWhere('c.username ILIKE :search', { search: `%${search}%` });
+				}),
+			);
 		}
 
-		const unreadPrivateSelect = hasViewer && viewerParamPosition != null
-			? `EXISTS (
-				SELECT 1
-				FROM messages pm
-				LEFT JOIN forum_participants fp
-					ON fp."forumId" = f.id
-					AND fp."userId" = $${viewerParamPosition}
-				WHERE pm."forumId" = f.id
-					AND pm.is_private = true
-					AND pm."recipientId" = $${viewerParamPosition}
-					AND pm."createdAt" > COALESCE(fp."lastReadAt", TO_TIMESTAMP(0))
-			)`
-			: 'false';
+		const name = query.name?.trim();
+		if (name) {
+			baseQuery.andWhere('f.name ILIKE :name', { name: `%${name}%` });
+		}
 
-		const manager = this.forumsRepository.manager;
+		const creatorName = query.creatorName?.trim();
+		if (creatorName) {
+			baseQuery.andWhere('c.username ILIKE :creatorName', {
+				creatorName: `%${creatorName}%`,
+			});
+		}
 
-		const countResult = await manager.query<[{ total: string }]>(
-			`SELECT COUNT(DISTINCT f.id)::int AS total
-			 FROM forums f
-			 LEFT JOIN users c ON c.id = f."creatorId"
-			 ${where}`,
-			filterParams,
+		const total = await baseQuery.clone().distinct(true).getCount();
+
+		const rowsQuery = this.applyListForumsOrderBy(
+			baseQuery
+				.clone()
+				.select('f.id', 'id')
+				.addSelect('f.name', 'name')
+				.addSelect('f.description', 'description')
+				.addSelect('c.username', 'creatorName')
+				.addSelect(
+					`(
+						SELECT u.username
+						FROM messages lm
+						JOIN users u ON u.id = lm."authorId"
+						WHERE lm."forumId" = f.id
+						ORDER BY lm."createdAt" DESC, lm.id DESC
+						LIMIT 1
+					)`,
+					'lastCommentAuthorName',
+				)
+				.addSelect(
+					`(
+						SELECT COUNT(*)
+						FROM messages m
+						WHERE m."forumId" = f.id
+						  AND m.is_private = false
+					)::int`,
+					'messagesCount',
+				)
+				.addSelect(
+					`(
+						SELECT COUNT(*)
+						FROM forum_participants p
+						WHERE p."forumId" = f.id
+					)::int`,
+					'participantsCount',
+				)
+				.addSelect('f.createdAt', 'createdAt')
+				.addSelect(
+					hasViewer
+						? `EXISTS (
+							SELECT 1
+							FROM messages pm
+							LEFT JOIN forum_participants fp
+								ON fp."forumId" = f.id
+								AND fp."userId" = :viewerUserId
+							WHERE pm."forumId" = f.id
+								AND pm.is_private = true
+								AND pm."recipientId" = :viewerUserId
+								AND pm."createdAt" > COALESCE(fp."lastReadAt", TO_TIMESTAMP(0))
+						)`
+						: 'false',
+					'hasUnreadPrivateMessages',
+				)
+				.setParameter('viewerUserId', normalizedViewerUserId)
+				.limit(pageSize)
+				.offset(skip),
+			query.sort,
 		);
 
-		const total = Number(countResult[0]?.total ?? 0);
-
-		const rows = await manager.query<{
+		const rows = await rowsQuery.getRawMany<{
 			id: string;
 			name: string;
 			description: string | null;
@@ -181,32 +210,7 @@ export class ForumsService {
 			participantsCount: string;
 			createdAt: string;
 			hasUnreadPrivateMessages: boolean;
-		}[]>(
-			`SELECT
-				f.id                        AS id,
-				f.name                      AS name,
-				f.description               AS description,
-				c.username                  AS "creatorName",
-				last_msg.username           AS "lastCommentAuthorName",
-				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id AND m.is_private = false)::int AS "messagesCount",
-				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
-				f."createdAt"              AS "createdAt",
-				${unreadPrivateSelect}      AS "hasUnreadPrivateMessages"
-			 FROM forums f
-			 LEFT JOIN users c ON c.id = f."creatorId"
-			 LEFT JOIN LATERAL (
-				SELECT u.username
-				FROM messages lm
-				JOIN users u ON u.id = lm."authorId"
-				WHERE lm."forumId" = f.id
-				ORDER BY lm."createdAt" DESC, lm.id DESC
-				LIMIT 1
-			 ) last_msg ON true
-			 ${where}
-			 ORDER BY ${orderBy}
-			 LIMIT $${p} OFFSET $${p + 1}`,
-			[...params, pageSize, skip],
-		);
+		}>();
 
 		const items: ListForumItemDto[] = rows.map((row) => ({
 			id: Number(row.id),
@@ -304,10 +308,12 @@ export class ForumsService {
 		forumId: number,
 		count = 5,
 	): Promise<ListForumItemDto[]> {
-		const manager = this.forumsRepository.manager;
 		const safeCount = Math.max(0, Math.min(Number(count ?? 5), 20));
 
-		const currentRows = await manager.query<{
+		const currentRows = await this.buildForumSidebarItemsQuery()
+			.where('f.id = :forumId', { forumId })
+			.take(1)
+			.getRawMany<{
 			id: string;
 			name: string;
 			description: string | null;
@@ -316,30 +322,7 @@ export class ForumsService {
 			messagesCount: string;
 			participantsCount: string;
 			createdAt: string;
-		}[]>(
-			`SELECT
-				f.id                        AS id,
-				f.name                      AS name,
-				f.description               AS description,
-				c.username                  AS "creatorName",
-				last_msg.username           AS "lastCommentAuthorName",
-				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id AND m.is_private = false)::int AS "messagesCount",
-				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
-				f."createdAt"              AS "createdAt"
-			 FROM forums f
-			 LEFT JOIN users c ON c.id = f."creatorId"
-			 LEFT JOIN LATERAL (
-				SELECT u.username
-				FROM messages lm
-				JOIN users u ON u.id = lm."authorId"
-				WHERE lm."forumId" = f.id
-				ORDER BY lm."createdAt" DESC, lm.id DESC
-				LIMIT 1
-			 ) last_msg ON true
-			 WHERE f.id = $1
-			 LIMIT 1`,
-			[forumId],
-		);
+			}>();
 
 		if (!currentRows.length) {
 			throw new NotFoundException('Forum nao encontrado');
@@ -349,21 +332,17 @@ export class ForumsService {
 			return [this.mapForumItemRow(currentRows[0])];
 		}
 
-		const sidebarCandidates = await manager.query<
-			[{ minId: string | null; maxId: string | null; total: string }]
-		>(
-			`SELECT
-				MIN(f.id)::bigint AS "minId",
-				MAX(f.id)::bigint AS "maxId",
-				COUNT(*)::int     AS total
-			 FROM forums f
-			 WHERE f.id <> $1`,
-			[forumId],
-		);
+		const sidebarCandidates = await this.forumsRepository
+			.createQueryBuilder('f')
+			.select('MIN(f.id)', 'minId')
+			.addSelect('MAX(f.id)', 'maxId')
+			.addSelect('COUNT(*)', 'total')
+			.where('f.id <> :forumId', { forumId })
+			.getRawOne<{ minId: string | null; maxId: string | null; total: string }>();
 
-		const minId = Number(sidebarCandidates[0]?.minId ?? 0);
-		const maxId = Number(sidebarCandidates[0]?.maxId ?? 0);
-		const totalCandidates = Number(sidebarCandidates[0]?.total ?? 0);
+		const minId = Number(sidebarCandidates?.minId ?? 0);
+		const maxId = Number(sidebarCandidates?.maxId ?? 0);
+		const totalCandidates = Number(sidebarCandidates?.total ?? 0);
 
 		if (
 			totalCandidates <= 0 ||
@@ -385,7 +364,9 @@ export class ForumsService {
 			return [this.mapForumItemRow(currentRows[0])];
 		}
 
-		const sampledRows = await manager.query<{
+		const sampledRows = await this.buildForumSidebarItemsQuery()
+			.where('f.id IN (:...sampledIds)', { sampledIds })
+			.getRawMany<{
 			id: string;
 			name: string;
 			description: string | null;
@@ -394,29 +375,7 @@ export class ForumsService {
 			messagesCount: string;
 			participantsCount: string;
 			createdAt: string;
-		}[]>(
-			`SELECT
-				f.id                        AS id,
-				f.name                      AS name,
-				f.description               AS description,
-				c.username                  AS "creatorName",
-				last_msg.username           AS "lastCommentAuthorName",
-				(SELECT COUNT(*) FROM messages m WHERE m."forumId" = f.id AND m.is_private = false)::int AS "messagesCount",
-				(SELECT COUNT(*) FROM forum_participants p WHERE p."forumId" = f.id)::int AS "participantsCount",
-				f."createdAt"              AS "createdAt"
-			 FROM forums f
-			 LEFT JOIN users c ON c.id = f."creatorId"
-			 LEFT JOIN LATERAL (
-				SELECT u.username
-				FROM messages lm
-				JOIN users u ON u.id = lm."authorId"
-				WHERE lm."forumId" = f.id
-				ORDER BY lm."createdAt" DESC, lm.id DESC
-				LIMIT 1
-			 ) last_msg ON true
-			 WHERE f.id = ANY($1::bigint[])`,
-			[sampledIds],
-		);
+			}>();
 
 		const sampledRowsById = new Map<number, typeof sampledRows[number]>();
 		for (const row of sampledRows) {
@@ -463,13 +422,12 @@ export class ForumsService {
 				break;
 			}
 
-			const existingRows = await this.forumsRepository.manager.query<{ id: string }[]>(
-				`SELECT f.id::bigint AS id
-				 FROM forums f
-				 WHERE f.id = ANY($1::bigint[])
-				   AND f.id <> $2`,
-				[randomCandidates, excludedForumId],
-			);
+			const existingRows = await this.forumsRepository
+				.createQueryBuilder('f')
+				.select('f.id', 'id')
+				.where('f.id IN (:...randomCandidates)', { randomCandidates })
+				.andWhere('f.id <> :excludedForumId', { excludedForumId })
+				.getRawMany<{ id: string }>();
 
 			for (const row of existingRows) {
 				selected.add(Number(row.id));
@@ -481,18 +439,20 @@ export class ForumsService {
 
 		if (selected.size < target) {
 			const missing = target - selected.size;
-			const fallbackRows = await this.forumsRepository.manager.query<{ id: string }[]>(
-				`SELECT f.id::bigint AS id
-				 FROM forums f
-				 WHERE f.id <> $1
-				   AND (
-					 COALESCE(array_length($2::bigint[], 1), 0) = 0
-					 OR NOT (f.id = ANY($2::bigint[]))
-				   )
-				 ORDER BY f.id DESC
-				 LIMIT $3`,
-				[excludedForumId, Array.from(selected), missing],
-			);
+			const selectedIds = Array.from(selected);
+			const fallbackQuery = this.forumsRepository
+				.createQueryBuilder('f')
+				.select('f.id', 'id')
+				.where('f.id <> :excludedForumId', { excludedForumId });
+
+			if (selectedIds.length > 0) {
+				fallbackQuery.andWhere('f.id NOT IN (:...selectedIds)', { selectedIds });
+			}
+
+			const fallbackRows = await fallbackQuery
+				.orderBy('f.id', 'DESC')
+				.take(missing)
+				.getRawMany<{ id: string }>();
 
 			for (const row of fallbackRows) {
 				selected.add(Number(row.id));
@@ -542,6 +502,45 @@ export class ForumsService {
 		}
 
 		return copy;
+	}
+
+	private buildForumSidebarItemsQuery(): SelectQueryBuilder<Forum> {
+		return this.forumsRepository
+			.createQueryBuilder('f')
+			.leftJoin('f.creator', 'c')
+			.select('f.id', 'id')
+			.addSelect('f.name', 'name')
+			.addSelect('f.description', 'description')
+			.addSelect('c.username', 'creatorName')
+			.addSelect(
+				`(
+					SELECT u.username
+					FROM messages lm
+					JOIN users u ON u.id = lm."authorId"
+					WHERE lm."forumId" = f.id
+					ORDER BY lm."createdAt" DESC, lm.id DESC
+					LIMIT 1
+				)`,
+				'lastCommentAuthorName',
+			)
+			.addSelect(
+				`(
+					SELECT COUNT(*)
+					FROM messages m
+					WHERE m."forumId" = f.id
+					  AND m.is_private = false
+				)::int`,
+				'messagesCount',
+			)
+			.addSelect(
+				`(
+					SELECT COUNT(*)
+					FROM forum_participants p
+					WHERE p."forumId" = f.id
+				)::int`,
+				'participantsCount',
+			)
+			.addSelect('f.createdAt', 'createdAt');
 	}
 
 	async ensureForumParticipant(forumId: number, userId: number): Promise<void> {
@@ -767,21 +766,40 @@ export class ForumsService {
 		};
 	}
 
-	private resolveListForumsOrderBy(sort?: ListForumsQueryDto['sort']): string {
+	private applyListForumsOrderBy(
+		queryBuilder: SelectQueryBuilder<Forum>,
+		sort?: ListForumsQueryDto['sort'],
+	): SelectQueryBuilder<Forum> {
 		switch (sort) {
 			case 'date_asc':
-				return 'f."createdAt" ASC, f.id ASC';
+				return queryBuilder
+					.orderBy('f.createdAt', 'ASC')
+					.addOrderBy('f.id', 'ASC');
 			case 'messages_desc':
-				return '"messagesCount" DESC, f."createdAt" DESC, f.id DESC';
+				return queryBuilder
+					.orderBy('messagesCount', 'DESC')
+					.addOrderBy('f.createdAt', 'DESC')
+					.addOrderBy('f.id', 'DESC');
 			case 'messages_asc':
-				return '"messagesCount" ASC, f."createdAt" ASC, f.id ASC';
+				return queryBuilder
+					.orderBy('messagesCount', 'ASC')
+					.addOrderBy('f.createdAt', 'ASC')
+					.addOrderBy('f.id', 'ASC');
 			case 'participants_desc':
-				return '"participantsCount" DESC, f."createdAt" DESC, f.id DESC';
+				return queryBuilder
+					.orderBy('participantsCount', 'DESC')
+					.addOrderBy('f.createdAt', 'DESC')
+					.addOrderBy('f.id', 'DESC');
 			case 'participants_asc':
-				return '"participantsCount" ASC, f."createdAt" ASC, f.id ASC';
+				return queryBuilder
+					.orderBy('participantsCount', 'ASC')
+					.addOrderBy('f.createdAt', 'ASC')
+					.addOrderBy('f.id', 'ASC');
 			case 'date_desc':
 			default:
-				return 'f."createdAt" DESC, f.id DESC';
+				return queryBuilder
+					.orderBy('f.createdAt', 'DESC')
+					.addOrderBy('f.id', 'DESC');
 		}
 	}
 
