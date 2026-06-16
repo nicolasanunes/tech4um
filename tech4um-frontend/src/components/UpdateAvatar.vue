@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { apiFetch } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -29,14 +29,24 @@ interface UpdateAvatarPayload {
 const authStore = useAuthStore()
 
 const isFormOpen = ref(false)
-const avatarUrl = ref('')
+const selectedFile = ref<File | null>(null)
+const previewImageUrl = ref<string | null>(null)
 const isSubmitting = ref(false)
 const feedbackMessage = ref<string | null>(null)
 const feedbackType = ref<'success' | 'error' | null>(null)
 
 const canSubmit = computed(() => {
-	return avatarUrl.value.trim().length > 0 && !isSubmitting.value
+	return selectedFile.value !== null && !isSubmitting.value
 })
+
+function revokePreviewImageUrl(): void {
+	if (!previewImageUrl.value) {
+		return
+	}
+
+	URL.revokeObjectURL(previewImageUrl.value)
+	previewImageUrl.value = null
+}
 
 function toggleForm(): void {
 	isFormOpen.value = !isFormOpen.value
@@ -44,8 +54,42 @@ function toggleForm(): void {
 	feedbackType.value = null
 
 	if (isFormOpen.value) {
-		avatarUrl.value = authStore.user?.avatarUrl ?? ''
+		selectedFile.value = null
+		revokePreviewImageUrl()
 	}
+}
+
+function handleAvatarFileChange(event: Event): void {
+	const input = event.target as HTMLInputElement
+	const file = input.files?.[0]
+
+	if (!file) {
+		selectedFile.value = null
+		revokePreviewImageUrl()
+		return
+	}
+
+	if (!file.type.startsWith('image/')) {
+		selectedFile.value = null
+		revokePreviewImageUrl()
+		feedbackType.value = 'error'
+		feedbackMessage.value = 'Selecione apenas arquivos de imagem.'
+		return
+	}
+
+	if (file.size > 5 * 1024 * 1024) {
+		selectedFile.value = null
+		revokePreviewImageUrl()
+		feedbackType.value = 'error'
+		feedbackMessage.value = 'A imagem deve ter no maximo 5MB.'
+		return
+	}
+
+	selectedFile.value = file
+	revokePreviewImageUrl()
+	previewImageUrl.value = URL.createObjectURL(file)
+	feedbackMessage.value = null
+	feedbackType.value = null
 }
 
 async function handleSaveAvatar(): Promise<void> {
@@ -55,9 +99,9 @@ async function handleSaveAvatar(): Promise<void> {
 		return
 	}
 
-	if (!avatarUrl.value.trim()) {
+	if (!selectedFile.value) {
 		feedbackType.value = 'error'
-		feedbackMessage.value = 'Informe a URL do avatar.'
+		feedbackMessage.value = 'Selecione uma imagem para atualizar seu avatar.'
 		return
 	}
 
@@ -66,14 +110,12 @@ async function handleSaveAvatar(): Promise<void> {
 	feedbackType.value = null
 
 	try {
+		const formData = new FormData()
+		formData.append('image', selectedFile.value)
+
 		const response = await apiFetch('/users/me/avatar', {
 			method: 'PATCH',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				avatarUrl: avatarUrl.value.trim(),
-			}),
+			body: formData,
 		})
 
 		const data = (await response.json()) as
@@ -93,6 +135,8 @@ async function handleSaveAvatar(): Promise<void> {
 
 		feedbackType.value = 'success'
 		feedbackMessage.value = 'Avatar atualizado com sucesso.'
+		selectedFile.value = null
+		revokePreviewImageUrl()
 		isFormOpen.value = false
 	} catch (error) {
 		feedbackType.value = 'error'
@@ -102,6 +146,10 @@ async function handleSaveAvatar(): Promise<void> {
 		isSubmitting.value = false
 	}
 }
+
+onBeforeUnmount(() => {
+	revokePreviewImageUrl()
+})
 </script>
 
 <template>
@@ -119,10 +167,17 @@ async function handleSaveAvatar(): Promise<void> {
 
 		<div v-if="isFormOpen" class="space-y-2 px-1 pb-1">
 			<input
-				v-model="avatarUrl"
+				class="w-full rounded border border-slate-300 px-2 py-2 text-xs text-slate-700 file:mr-3 file:rounded file:border-0 file:bg-[#1772B3] file:px-2 file:py-1 file:text-xs file:font-semibold file:text-white outline-none transition focus:border-[#1772B3] focus:ring-2 focus:ring-[#1772B3]/20"
+				type="file"
+				accept="image/*"
+				@change="handleAvatarFileChange"
+			/>
+
+			<img
+				v-if="previewImageUrl"
+				:src="previewImageUrl"
 				class="w-full rounded border border-slate-300 px-2 py-2 text-xs text-slate-700 outline-none transition focus:border-[#1772B3] focus:ring-2 focus:ring-[#1772B3]/20"
-				type="url"
-				placeholder="https://sua-imagem.com/avatar.jpg"
+				alt="Preview do novo avatar"
 			/>
 
 			<button

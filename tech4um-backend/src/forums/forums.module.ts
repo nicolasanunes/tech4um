@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { ForumsGateway } from './forums.gateway';
 import { Message } from '../messages/entities/message.entity';
+import { ForumsImageUploadService } from './forums-image-upload.service';
  
 @Module({
   imports: [
@@ -30,7 +31,13 @@ import { Message } from '../messages/entities/message.entity';
     }),
   ],
   controllers: [ForumsController],
-  providers: [ForumsService, JwtAuthGuard, OptionalJwtAuthGuard, ForumsGateway],
+  providers: [
+    ForumsService,
+    JwtAuthGuard,
+    OptionalJwtAuthGuard,
+    ForumsGateway,
+    ForumsImageUploadService,
+  ],
 })
 export class ForumsModule {}
  

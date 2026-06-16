@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 
 defineOptions({
 	name: 'ForumDragOrDropImage',
 })
 
 const emit = defineEmits<{
-	(e: 'select', imageDataUrl: string): void
+	(e: 'select', file: File): void
 }>()
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -14,6 +14,16 @@ const isModalOpen = ref(false)
 const isDragging = ref(false)
 const previewImageUrl = ref<string | null>(null)
 const feedbackMessage = ref<string | null>(null)
+const selectedFile = ref<File | null>(null)
+
+function revokePreviewImageUrl(): void {
+	if (!previewImageUrl.value) {
+		return
+	}
+
+	URL.revokeObjectURL(previewImageUrl.value)
+	previewImageUrl.value = null
+}
 
 function openModal(): void {
 	isModalOpen.value = true
@@ -23,7 +33,8 @@ function openModal(): void {
 function closeModal(): void {
 	isModalOpen.value = false
 	isDragging.value = false
-	previewImageUrl.value = null
+	revokePreviewImageUrl()
+	selectedFile.value = null
 	feedbackMessage.value = null
 
 	if (fileInputRef.value) {
@@ -36,7 +47,8 @@ function pickImage(): void {
 }
 
 function clearSelectedImage(): void {
-	previewImageUrl.value = null
+	revokePreviewImageUrl()
+	selectedFile.value = null
 	feedbackMessage.value = null
 	isDragging.value = false
 
@@ -90,30 +102,24 @@ async function loadFile(file: File): Promise<void> {
 		return
 	}
 
-	const dataUrl = await readFileAsDataUrl(file)
-	previewImageUrl.value = dataUrl
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader()
-
-		reader.onload = () => resolve(String(reader.result ?? ''))
-		reader.onerror = () => reject(new Error('Falha ao ler a imagem.'))
-
-		reader.readAsDataURL(file)
-	})
+	revokePreviewImageUrl()
+	selectedFile.value = file
+	previewImageUrl.value = URL.createObjectURL(file)
 }
 
 function sendImage(): void {
-	if (!previewImageUrl.value) {
+	if (!selectedFile.value) {
 		feedbackMessage.value = 'Selecione uma imagem antes de enviar.'
 		return
 	}
 
-	emit('select', previewImageUrl.value)
+	emit('select', selectedFile.value)
 	closeModal()
 }
+
+onBeforeUnmount(() => {
+	revokePreviewImageUrl()
+})
 </script>
 
 <template>

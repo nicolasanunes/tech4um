@@ -11,6 +11,10 @@ describe('ForumsController', () => {
     listAllForums: jest.Mock;
     listForumById: jest.Mock;
     listForumSidebar: jest.Mock;
+    ensureForumParticipant: jest.Mock;
+  };
+  let forumsImageUploadService: {
+    uploadChatImage: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -19,6 +23,10 @@ describe('ForumsController', () => {
       listAllForums: jest.fn(),
       listForumById: jest.fn(),
       listForumSidebar: jest.fn(),
+      ensureForumParticipant: jest.fn(),
+    };
+    forumsImageUploadService = {
+      uploadChatImage: jest.fn(),
     };
 
     const moduleBuilder = Test.createTestingModule({
@@ -27,6 +35,10 @@ describe('ForumsController', () => {
         {
           provide: ForumsService,
           useValue: forumsService,
+        },
+        {
+          provide: require('./forums-image-upload.service').ForumsImageUploadService,
+          useValue: forumsImageUploadService,
         },
       ],
     })
@@ -121,5 +133,24 @@ describe('ForumsController', () => {
     expect(forumsService.listForumSidebar).toHaveBeenCalledWith(5, 7);
     expect(forum).toEqual({ id: 5 });
     expect(sidebar).toEqual([{ id: 5 }]);
+  });
+
+  it('uploads a chat image and returns the generated url', async () => {
+    const file = {
+      buffer: Buffer.from('image-bytes'),
+      mimetype: 'image/png',
+      originalname: 'chat.png',
+      size: 11,
+    };
+
+    forumsImageUploadService.uploadChatImage.mockResolvedValueOnce(
+      'https://bucket.example/chat.png',
+    );
+
+    const result = await controller.uploadChatImage(4, file, { user: { id: '8' } } as any);
+
+    expect(forumsService.ensureForumParticipant).toHaveBeenCalledWith(4, 8);
+    expect(forumsImageUploadService.uploadChatImage).toHaveBeenCalledWith(file, 4, 8);
+    expect(result).toEqual({ imageUrl: 'https://bucket.example/chat.png' });
   });
 });

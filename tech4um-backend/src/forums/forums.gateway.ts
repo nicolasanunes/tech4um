@@ -186,8 +186,8 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    if (imageUrl && !this.isValidImageDataUrl(imageUrl)) {
-      client.emit('chat_error', { message: 'Imagem invalida ou muito grande' });
+    if (imageUrl && !this.isValidImageUrl(imageUrl)) {
+      client.emit('chat_error', { message: 'Imagem invalida' });
       return;
     }
 
@@ -374,24 +374,16 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return null;
   }
 
-  private isValidImageDataUrl(value: string): boolean {
-    if (!value.startsWith('data:image/')) {
+  private isValidImageUrl(value: string): boolean {
+    if (value.startsWith('data:image/')) {
       return false;
     }
 
-    const commaIndex = value.indexOf(',');
-    if (commaIndex < 0) {
+    try {
+      const parsedUrl = new URL(value);
+      return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+    } catch {
       return false;
     }
-
-    const metadata = value.slice(0, commaIndex).toLowerCase();
-    if (!metadata.includes(';base64')) {
-      return false;
-    }
-
-    const base64 = value.slice(commaIndex + 1);
-    const estimatedBytes = Math.floor((base64.length * 3) / 4);
-
-    return estimatedBytes <= 5 * 1024 * 1024;
   }
 } 

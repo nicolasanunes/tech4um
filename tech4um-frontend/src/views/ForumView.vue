@@ -39,6 +39,10 @@ interface ApiErrorResponse {
 	timestamp: string
 }
 
+interface UploadChatImageResponse {
+	imageUrl: string
+}
+
 interface ForumParticipant {
 	id: number
 	username: string
@@ -309,24 +313,50 @@ function normalizeIncomingMessage(rawMessage: ForumMessage): ForumMessage {
 	}
 }
 
-function sendImageMessage(imageDataUrl: string): void {
+
+async function sendImageMessage(file: File): Promise<void> {
 	if (!socket || !isForumIdValid.value) {
 		return
 	}
 
-	if (privateRecipient.value) {
+	errorMessage.value = null
+
+	const formData = new FormData()
+	formData.append('image', file)
+
+	try {
+		const response = await apiFetch(`/forums/${currentForumId.value}/chat-images`, {
+			method: 'POST',
+			body: formData,
+		})
+
+		const data = (await response.json()) as
+			| ApiSuccessResponse<UploadChatImageResponse>
+			| ApiErrorResponse
+
+		if (!response.ok || !data.success) {
+			throw new Error(data.message ?? 'Falha ao enviar imagem')
+		}
+
+		const imageUrl = data.data.imageUrl
+
+		if (privateRecipient.value) {
+			socket.emit('send_message', {
+				forumId: currentForumId.value,
+				recipientId: privateRecipient.value.id,
+				imageUrl,
+			})
+			return
+		}
+
 		socket.emit('send_message', {
 			forumId: currentForumId.value,
-			recipientId: privateRecipient.value.id,
-			imageUrl: imageDataUrl,
+			imageUrl,
 		})
-		return
+	} catch (error) {
+		errorMessage.value =
+			error instanceof Error ? error.message : 'Falha ao enviar imagem'
 	}
-
-	socket.emit('send_message', {
-		forumId: currentForumId.value,
-		imageUrl: imageDataUrl,
-	})
 }
 
 function openFullscreenImage(imageUrl: string | null): void {
