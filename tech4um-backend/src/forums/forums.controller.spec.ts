@@ -123,15 +123,35 @@ describe('ForumsController', () => {
   });
 
   it('delegates forum by id and sidebar requests', async () => {
-    forumsService.listForumById.mockResolvedValueOnce({ id: 5 });
+    forumsService.listForumById.mockResolvedValueOnce({
+      id: 5,
+      messages: [],
+      meta: {
+        limit: 30,
+        hasMoreOlderMessages: false,
+        oldestMessageId: null,
+        newestMessageId: null,
+      },
+    });
     forumsService.listForumSidebar.mockResolvedValueOnce([{ id: 5 }]);
 
     const forum = await controller.listForumById(5, { user: { id: '3' } } as any);
     const sidebar = await controller.listForumSidebar(5, 7);
 
-    expect(forumsService.listForumById).toHaveBeenCalledWith(5, 3);
+    expect(forumsService.listForumById).toHaveBeenCalledWith(5, 3, {
+      limit: 30,
+    });
     expect(forumsService.listForumSidebar).toHaveBeenCalledWith(5, 7);
-    expect(forum).toEqual({ id: 5 });
+    expect(forum).toEqual({
+      id: 5,
+      messages: [],
+      meta: {
+        limit: 30,
+        hasMoreOlderMessages: false,
+        oldestMessageId: null,
+        newestMessageId: null,
+      },
+    });
     expect(sidebar).toEqual([{ id: 5 }]);
   });
 

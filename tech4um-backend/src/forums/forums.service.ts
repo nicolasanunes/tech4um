@@ -227,7 +227,14 @@ export class ForumsService {
 		return { items, page, pageSize, total };
 	}
 
-	async listForumById(id: number, viewerUserId?: number): Promise<ListForumByIdResponseDto> {
+	async listForumById(
+		id: number,
+		viewerUserId?: number,
+		options?: {
+			limit?: number;
+			beforeMessageId?: number;
+		},
+	): Promise<ListForumByIdResponseDto> {
 		if (viewerUserId != null && Number.isFinite(viewerUserId)) {
 			await this.markForumAsRead(id, Number(viewerUserId));
 		}
@@ -259,13 +266,21 @@ export class ForumsService {
 				avatarUrl: participant.user.avatarUrl ?? null,
 			}));
 
+		const limit = Math.max(1, Math.min(Number(options?.limit ?? 30), 100));
+		const beforeMessageId = Number(options?.beforeMessageId ?? 0);
+
 		const messagesQuery = this.messagesRepository
 			.createQueryBuilder('message')
 			.leftJoinAndSelect('message.author', 'author')
 			.leftJoinAndSelect('message.recipient', 'recipient')
 			.where('message."forumId" = :forumId', { forumId: id })
-			.orderBy('message."createdAt"', 'ASC')
-			.addOrderBy('message.id', 'ASC');
+			.orderBy('message.id', 'DESC');
+
+		if (Number.isFinite(beforeMessageId) && beforeMessageId > 0) {
+			messagesQuery.andWhere('message.id < :beforeMessageId', {
+				beforeMessageId,
+			});
+		}
 
 		if (viewerUserId != null) {
 			messagesQuery.andWhere(
@@ -279,9 +294,13 @@ export class ForumsService {
 			messagesQuery.andWhere('message.is_private = false');
 		}
 
-		const persistedMessages = await messagesQuery.getMany();
+		const persistedMessages = await messagesQuery.take(limit + 1).getMany();
+		const hasMoreOlderMessages = persistedMessages.length > limit;
+		const limitedMessages = hasMoreOlderMessages
+			? persistedMessages.slice(0, limit)
+			: persistedMessages;
 
-		const messages = persistedMessages.map((message) => ({
+		const messages = limitedMessages.map((message) => ({
 			id: message.id,
 			text: message.text,
 			imageUrl: message.imageUrl ?? null,
@@ -301,6 +320,12 @@ export class ForumsService {
 			creatorName: forum.creator.username,
 			participants,
 			messages,
+			meta: {
+				limit,
+				hasMoreOlderMessages,
+				oldestMessageId: messages[messages.length - 1]?.id ?? null,
+				newestMessageId: messages[0]?.id ?? null,
+			},
 		}; 
 	}
 

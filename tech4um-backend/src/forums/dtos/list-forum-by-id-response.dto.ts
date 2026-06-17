@@ -17,6 +17,13 @@ export class ForumParticipantDto {
   avatarUrl!: string | null;
 }
 
+export class ForumMessagesMetaDto {
+  limit!: number;
+  hasMoreOlderMessages!: boolean;
+  oldestMessageId!: number | null;
+  newestMessageId!: number | null;
+}
+
 export class ListForumByIdResponseDto {
   id!: number;
   name!: string;
@@ -24,4 +31,5 @@ export class ListForumByIdResponseDto {
   creatorName!: string;
   participants!: ForumParticipantDto[];
   messages!: ForumMessageDto[];
+  meta!: ForumMessagesMetaDto;
 } 

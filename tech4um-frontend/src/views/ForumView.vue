@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import { io, type Socket } from 'socket.io-client'
 import { useRoute, useRouter } from 'vue-router'
 import DragOrDropImage from '@/components/DragOrDropImage.vue'
@@ -69,6 +70,14 @@ interface ForumStatePayload {
 	creatorName: string
 	participants: ForumParticipant[]
 	messages: ForumMessage[]
+	meta: ForumMessagesMeta
+}
+
+interface ForumMessagesMeta {
+	limit: number
+	hasMoreOlderMessages: boolean
+	oldestMessageId: number | null
+	newestMessageId: number | null
 }
 
 interface LegacyForumStatePayload {
@@ -122,6 +131,12 @@ const forumName = ref('')
 const forumDescription = ref<string | null>(null)
 const forumCreatorName = ref('')
 const messages = ref<ForumMessage[]>([])
+const messagesMeta = ref<ForumMessagesMeta>({
+	limit: 10,
+	hasMoreOlderMessages: false,
+	oldestMessageId: null,
+	newestMessageId: null,
+})
 const onlineParticipants = ref<ForumParticipant[]>([])
 const allParticipants = ref<ForumParticipant[]>([])
 const typingUsers = ref<string[]>([])
@@ -141,6 +156,19 @@ const otherForums = ref<ForumCardItem[]>([])
 const messagesContainerRef = ref<HTMLElement | null>(null)
 const messageInputRef = ref<ComponentPublicInstance | null>(null)
 const fullscreenImageUrl = ref<string | null>(null)
+const isLoadingOlderMessages = ref(false)
+
+const messageVirtualizer = useVirtualizer(
+	computed(() => ({
+		count: messages.value.length,
+		getScrollElement: () => messagesContainerRef.value,
+		estimateSize: () => 116,
+		gap: 12,
+		overscan: 8,
+		anchorTo: 'end',
+		getItemKey: (index) => messages.value[index]?.id ?? index,
+	})),
+)
 
 let socket: Socket | null = null
 let joinedForumId: number | null = null
@@ -207,6 +235,119 @@ function teardownLargeScreenBreakpointWatcher(): void {
 function getMessageInputElement(): HTMLInputElement | null {
 	const element = messageInputRef.value?.$el
 	return element instanceof HTMLInputElement ? element : null
+}
+
+function getMessagesScrollElement(): HTMLElement | null {
+	return messagesContainerRef.value
+}
+
+function getVirtualMessage(index: number): ForumMessage | undefined {
+	return messages.value[index]
+}
+
+function getVirtualMessagePositionStyle(index: number, start: number): {
+	position: 'absolute'
+	top: number
+	left: string
+	right: string
+	width: string
+	maxWidth: string
+	transform: string
+} {
+	const message = getVirtualMessage(index)
+	const ownMessage = message ? isOwnMessage(message) : false
+
+	return {
+		position: 'absolute',
+		top: 0,
+		left: ownMessage ? 'auto' : '0',
+		right: ownMessage ? '0' : 'auto',
+		width: '80%',
+		maxWidth: '80%',
+		transform: `translateY(${start}px)`,
+	}
+}
+
+function measureVirtualItemElement(
+	node: Element | ComponentPublicInstance | null,
+): void {
+	if (!(node instanceof Element)) {
+		return
+	}
+
+	messageVirtualizer.value.measureElement(node)
+}
+
+function isMessagesNearBottom(threshold = 120): boolean {
+	const container = getMessagesScrollElement()
+
+	if (!container) {
+		return true
+	}
+
+	return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+}
+
+function getForumMessagesQuery(beforeMessageId?: number | null): string {
+	const query = new URLSearchParams({
+		limit: String(messagesMeta.value.limit || 10),
+	})
+
+	if (beforeMessageId != null && Number.isFinite(beforeMessageId) && beforeMessageId > 0) {
+		query.set('beforeMessageId', String(beforeMessageId))
+	}
+
+	const queryString = query.toString()
+	return queryString ? `?${queryString}` : ''
+}
+
+function sortMessagesByIdAsc(input: ForumMessage[]): ForumMessage[] {
+	return input.slice().sort((left, right) => left.id - right.id)
+}
+
+function getMessageBounds(input: ForumMessage[]): {
+	oldestId: number | null
+	newestId: number | null
+} {
+	if (!input.length) {
+		return {
+			oldestId: null,
+			newestId: null,
+		}
+	}
+
+	return {
+		oldestId: input[0]?.id ?? null,
+		newestId: input[input.length - 1]?.id ?? null,
+	}
+}
+
+function normalizeMessagesMeta(payload: Partial<ForumMessagesMeta> | undefined, fallback: ForumMessage[]): ForumMessagesMeta {
+	const sortedFallback = sortMessagesByIdAsc(fallback)
+	const bounds = getMessageBounds(sortedFallback)
+
+	return {
+		limit: Math.max(1, Number(payload?.limit ?? sortedFallback.length ?? 10)),
+		hasMoreOlderMessages: payload?.hasMoreOlderMessages === true,
+		oldestMessageId:
+			bounds.oldestId ??
+			(typeof payload?.oldestMessageId === 'number' ? payload.oldestMessageId : null),
+		newestMessageId:
+			bounds.newestId ??
+			(typeof payload?.newestMessageId === 'number' ? payload.newestMessageId : null),
+	}
+}
+
+function mergeMessagesById(baseMessages: ForumMessage[], incomingMessages: ForumMessage[]): ForumMessage[] {
+	const uniqueById = new Map<number, ForumMessage>()
+
+	for (const message of [...baseMessages, ...incomingMessages]) {
+		if (!uniqueById.has(message.id)) {
+			uniqueById.set(message.id, message)
+		}
+	}
+
+	return sortMessagesByIdAsc(Array.from(uniqueById.values()))
 }
 
 function onEmojiSelect(unicode: string): void {
@@ -280,13 +421,17 @@ function normalizeForumState(
 		createdAt: message.createdAt,
 	}))
 
+	const sortedMessages = sortMessagesByIdAsc(normalizedMessages)
+	const meta = normalizeMessagesMeta((payload as ForumStatePayload).meta, sortedMessages)
+
 	return {
 		id: Number((payload as ForumStatePayload).id ?? currentForumId.value),
 		name: payload.name,
 		description: payload.description ?? null,
 		creatorName: (payload as ForumStatePayload).creatorName ?? '-',
 		participants,
-		messages: normalizedMessages,
+		messages: sortedMessages,
+		meta,
 	}
 }
 
@@ -409,6 +554,101 @@ async function scrollMessagesToBottom(smooth = false): Promise<void> {
 	})
 }
 
+async function loadForumMessagesPage(options: {
+	prepend?: boolean
+	beforeMessageId?: number | null
+	isInitialLoad?: boolean
+} = {}): Promise<void> {
+	if (!isForumIdValid.value) {
+		return
+	}
+
+	const { prepend = false, beforeMessageId = null, isInitialLoad = false } = options
+	const container = getMessagesScrollElement()
+	const previousScrollHeight = container?.scrollHeight ?? 0
+	const previousScrollTop = container?.scrollTop ?? 0
+
+	if (prepend) {
+		isLoadingOlderMessages.value = true
+	} else {
+		isLoadingForum.value = true
+	}
+
+	errorMessage.value = null
+
+	try {
+		const response = await apiFetch(
+			`/forums/${currentForumId.value}${getForumMessagesQuery(beforeMessageId)}`,
+			{ method: 'GET' },
+		)
+
+		if (response.status === 404) {
+			await router.replace('/forums')
+			return
+		}
+
+		const data = (await response.json()) as
+			| ApiSuccessResponse<ForumStatePayload | LegacyForumStatePayload>
+			| ApiErrorResponse
+
+		if (!response.ok || !data.success) {
+			throw new Error(data.message ?? 'Falha ao carregar mensagens')
+		}
+
+		const state = normalizeForumState(data.data)
+
+		if (!prepend) {
+			forumName.value = state.name
+			forumDescription.value = state.description
+			forumCreatorName.value = state.creatorName
+			allParticipants.value = state.participants
+			messages.value = state.messages
+		} else {
+			messages.value = mergeMessagesById(messages.value, state.messages)
+		}
+
+		const bounds = getMessageBounds(messages.value)
+		messagesMeta.value = {
+			...state.meta,
+			oldestMessageId: bounds.oldestId,
+			newestMessageId: bounds.newestId,
+		}
+		isLoadingForum.value = false
+		isLoadingOlderMessages.value = false
+
+		await nextTick()
+
+		if (prepend && container) {
+			const nextScrollHeight = container.scrollHeight
+			container.scrollTop = previousScrollTop + (nextScrollHeight - previousScrollHeight)
+		} else if (isInitialLoad) {
+			await scrollMessagesToBottom()
+		}
+	} catch (error) {
+		errorMessage.value =
+			error instanceof Error ? error.message : 'Falha ao carregar mensagens'
+	} finally {
+		isLoadingForum.value = false
+		isLoadingOlderMessages.value = false
+	}
+}
+
+async function loadOlderMessages(): Promise<void> {
+	if (
+		isLoadingForum.value ||
+		isLoadingOlderMessages.value ||
+		!messagesMeta.value.hasMoreOlderMessages ||
+		messagesMeta.value.oldestMessageId == null
+	) {
+		return
+	}
+
+	await loadForumMessagesPage({
+		prepend: true,
+		beforeMessageId: messagesMeta.value.oldestMessageId,
+	})
+}
+
 async function loadOtherForums(): Promise<void> {
 	isLoadingForums.value = true
 
@@ -458,45 +698,7 @@ async function loadOtherForums(): Promise<void> {
 }
 
 async function loadForumSnapshot(): Promise<void> {
-	if (!isForumIdValid.value) {
-		return
-	}
-
-	isLoadingForum.value = true
-	errorMessage.value = null
-
-	try {
-		const response = await apiFetch(`/forums/${currentForumId.value}`, {
-			method: 'GET',
-		})
-
-		if (response.status === 404) {
-			await router.replace('/forums')
-			return
-		}
-
-		const data = (await response.json()) as
-			| ApiSuccessResponse<ForumStatePayload | LegacyForumStatePayload>
-			| ApiErrorResponse
-
-		if (!response.ok || !data.success) {
-			throw new Error(data.message ?? 'Falha ao carregar mensagens')
-		}
-
-		const state = normalizeForumState(data.data)
-		forumName.value = state.name
-		forumDescription.value = state.description
-		forumCreatorName.value = state.creatorName
-		allParticipants.value = state.participants
-		messages.value = state.messages
-		isLoadingForum.value = false
-
-		await scrollMessagesToBottom()
-	} catch (error) {
-		errorMessage.value =
-			error instanceof Error ? error.message : 'Falha ao carregar mensagens'
-		isLoadingForum.value = false
-	}
+	await loadForumMessagesPage({ isInitialLoad: true })
 }
 
 function clearTypingTimeout(): void {
@@ -566,6 +768,24 @@ function handleTypingInput(): void {
 	scheduleTypingStop()
 }
 
+function handleMessagesScroll(): void {
+	if (
+		isLoadingForum.value ||
+		isLoadingOlderMessages.value ||
+		!messagesMeta.value.hasMoreOlderMessages
+	) {
+		return
+	}
+
+	const container = getMessagesScrollElement()
+
+	if (!container || container.scrollTop > 120) {
+		return
+	}
+
+	void loadOlderMessages()
+}
+
 function setupSocket(): void {
 	if (socket) {
 		return
@@ -611,6 +831,7 @@ function setupSocket(): void {
 		forumCreatorName.value = payload.creatorName
 		allParticipants.value = payload.participants
 		messages.value = payload.messages
+		messagesMeta.value = payload.meta
 		isLoadingForum.value = false
 		errorMessage.value = null
 
@@ -624,8 +845,18 @@ function setupSocket(): void {
 			return
 		}
 
-		messages.value.push(normalizedMessage)
-		await scrollMessagesToBottom(true)
+		const stickToBottom = isMessagesNearBottom()
+		messages.value = mergeMessagesById(messages.value, [normalizedMessage])
+		const bounds = getMessageBounds(messages.value)
+		messagesMeta.value = {
+			...messagesMeta.value,
+			oldestMessageId: bounds.oldestId,
+			newestMessageId: bounds.newestId,
+		}
+
+		if (stickToBottom) {
+			await scrollMessagesToBottom(true)
+		}
 	})
 
 	socket.on('participants_online', (payload: ParticipantsOnlinePayload) => {
@@ -891,7 +1122,7 @@ onBeforeUnmount(() => {
 
 			<section class="order-2 relative flex h-[calc(100dvh-10rem)] min-h-0 min-w-0 flex-col rounded-xl border border-border bg-background-color shadow-sm lg:h-full">
 				<header class="flex items-center justify-between border-b border-border shadow-md px-4 py-5">
-		  <div class="flex items-center gap-4">
+		      <div class="flex items-center gap-4">
 						<button
 							:aria-expanded="isParticipantsVisible"
 							:aria-label="isParticipantsVisible ? 'Ocultar participantes online' : 'Mostrar participantes online'"
@@ -910,53 +1141,75 @@ onBeforeUnmount(() => {
           </div>
 				</header>
 
-				<div ref="messagesContainerRef" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pt-4 pb-8">
+				<div
+					ref="messagesContainerRef"
+					class="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-8"
+					@scroll="handleMessagesScroll"
+				>
 					<p v-if="isLoadingForum" class="text-sm text-text-color-54">Carregando mensagens...</p>
 					<p v-else-if="errorMessage" class="text-sm text-red-600">{{ errorMessage }}</p>
 
-					<article
-						v-for="message in messages"
-						:key="message.id"
-						:class="[
-							'max-w-[80%] rounded-xl p-3',
-							message.isPrivate
-								? 'bg-secondary-dark-color text-white ' + (isOwnMessage(message) ? 'ml-auto' : '')
-								: isOwnMessage(message)
-									? 'ml-auto bg-primary-dark-color text-white'
-									: 'bg-background-color text-text-color-54',
-						]"
+					<div
+						v-if="!isLoadingForum && messagesMeta.hasMoreOlderMessages"
+						class="mb-4 flex justify-center"
 					>
-			<div class="flex items-center gap-3">
-              <div class="flex">
-                <Avatar
-                  class="size-10"
-                  aria-label="Imagem do usuário"
-                  tabindex="0"
-                >
-                  <AvatarImage :src="message.authorAvatarUrl ? message.authorAvatarUrl : ''" alt="profile-picture" />
-                  <AvatarFallback class="border border-text-color-25/30">{{ getUserInitials(message.authorName) }}</AvatarFallback>
-                </Avatar>
-              </div>
-              <div class="mt-3 group">
-                <div class="flex gap-2">
-                  <p class="mb-1 text-xs opacity-80">{{ message.authorName }}</p>
-                  <span v-if="!isOwnMessage(message)" class="opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
-                    <svg @click="setPrivateRecipient({ id: message.authorId, username: message.authorName, avatarUrl: message.authorAvatarUrl })" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="['cursor-pointer transition-colors', message.isPrivate ? 'text-primary-dark-color hover:text-primary-default-color' : 'text-secondary-dark-color hover:text-secondary-default-color']"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
-                  </span>
-                </div>
-								<p v-if="message.text" class="whitespace-pre-wrap text-sm">{{ message.text }}</p>
-								<img
-									v-if="message.imageUrl"
-									:src="message.imageUrl"
-									alt="Imagem enviada no chat"
-									class="mt-2 max-h-72 w-full cursor-pointer rounded-xl object-cover"
-									@click="openFullscreenImage(message.imageUrl)"
-								>
-                <p class="mt-1 text-right text-[10px] opacity-75">{{ formatMessageTime(message.createdAt) }}</p>
-              </div>
-            </div>
-					</article>
+						<button
+							type="button"
+							class="rounded-full border border-border bg-background-color px-4 py-2 text-xs font-semibold text-primary-dark-color shadow-sm transition-colors hover:bg-primary-dark-color hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+							:disabled="isLoadingOlderMessages"
+							@click="loadOlderMessages"
+						>
+							{{ isLoadingOlderMessages ? 'Carregando...' : 'Carregar mensagens anteriores' }}
+						</button>
+					</div>
 
+					<div :style="{ height: `${messageVirtualizer.getTotalSize()}px`, position: 'relative' }">
+						<article
+							v-for="virtualItem in messageVirtualizer.getVirtualItems()"
+							:key="String(virtualItem.key)"
+							:ref="measureVirtualItemElement"
+							:data-index="virtualItem.index"
+							:style="getVirtualMessagePositionStyle(virtualItem.index, virtualItem.start)"
+							:class="[
+								'max-w-[80%] rounded-xl p-3 space-y-3',
+								getVirtualMessage(virtualItem.index)?.isPrivate
+									? 'bg-secondary-dark-color text-white ' + (isOwnMessage(getVirtualMessage(virtualItem.index)!) ? 'ml-auto' : '')
+									: isOwnMessage(getVirtualMessage(virtualItem.index)!)
+										? 'ml-auto bg-primary-dark-color text-white'
+										: 'bg-background-color text-text-color-54',
+							]"
+						>
+							<div v-if="getVirtualMessage(virtualItem.index)" class="flex items-center gap-3">
+								<div class="flex">
+									<Avatar class="size-10" aria-label="Imagem do usuário" tabindex="0">
+										<AvatarImage :src="getVirtualMessage(virtualItem.index)?.authorAvatarUrl ?? ''" alt="profile-picture" />
+										<AvatarFallback class="border border-text-color-25/30">{{ getUserInitials(getVirtualMessage(virtualItem.index)?.authorName ?? '') }}</AvatarFallback>
+									</Avatar>
+								</div>
+								<div class="mt-3 group">
+									<div class="flex gap-2">
+										<p class="mb-1 text-xs opacity-80">{{ getVirtualMessage(virtualItem.index)?.authorName }}</p>
+										<span v-if="!isOwnMessage(getVirtualMessage(virtualItem.index)!)" class="opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+											<svg @click="setPrivateRecipient({ id: getVirtualMessage(virtualItem.index)!.authorId, username: getVirtualMessage(virtualItem.index)!.authorName, avatarUrl: getVirtualMessage(virtualItem.index)!.authorAvatarUrl })" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="['cursor-pointer transition-colors', getVirtualMessage(virtualItem.index)?.isPrivate ? 'text-primary-dark-color hover:text-primary-default-color' : 'text-secondary-dark-color hover:text-secondary-default-color']"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
+										</span>
+									</div>
+									<p v-if="getVirtualMessage(virtualItem.index)?.text" class="whitespace-pre-wrap text-sm">{{ getVirtualMessage(virtualItem.index)?.text }}</p>
+									<img
+										v-if="getVirtualMessage(virtualItem.index)?.imageUrl"
+										:src="getVirtualMessage(virtualItem.index)?.imageUrl ?? ''"
+										alt="Imagem enviada no chat"
+										class="mt-2 max-h-72 w-full cursor-pointer rounded-xl object-cover"
+										@click="openFullscreenImage(getVirtualMessage(virtualItem.index)?.imageUrl ?? null)"
+									>
+									<p class="mt-1 text-right text-[10px] opacity-75">{{ formatMessageTime(getVirtualMessage(virtualItem.index)?.createdAt ?? '') }}</p>
+								</div>
+							</div>
+						</article>
+					</div>
+
+					<p v-if="isLoadingOlderMessages" class="py-2 text-center text-xs text-text-color-54">
+						Carregando mensagens anteriores...
+					</p>
 					<p v-if="!isLoadingForum && !messages.length" class="text-sm text-text-color-54">
 						Nenhuma mensagem ainda. Seja o primeiro a enviar.
 					</p>

@@ -82,8 +82,15 @@ export class ForumsController {
   async listForumById(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: Request & { user: LoginPayloadDto },
+    @Query('beforeMessageId') beforeMessageId?: string,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit?: number,
   ) {
-    return this.forumsService.listForumById(id, Number(request.user.id));
+    return this.forumsService.listForumById(id, Number(request.user.id), {
+      limit: limit ?? 10,
+      ...(beforeMessageId != null && beforeMessageId !== ''
+        ? { beforeMessageId: Number(beforeMessageId) }
+        : {}),
+    });
   }
 
   @Get(':id/sidebar')

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,20 +74,13 @@ const isCreateModalOpen = ref(false)
 const isCreatingForum = ref(false)
 const createForumErrorMessage = ref<string | null>(null)
 
-const forumsGridRef = ref<HTMLElement | null>(null)
-const forumCardRefs = new Map<number, HTMLElement>()
-const forumCardSpans = ref<Record<number, number>>({})
-
-let resizeObserver: ResizeObserver | null = null
-
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(searchTerm, (newVal) => {
-  if (newVal.trim() !== '') return
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(async () => {
     currentPage.value = 1
-    await listAllForums('')
+    await listAllForums(newVal, 1)
   }, 2000)
 })
 
@@ -214,99 +207,7 @@ async function goToPage(page: number): Promise<void> {
   await listAllForums(searchTerm.value, page)
 }
 
-function setForumCardRef(
-  forumId: number,
-  element: Element | ComponentPublicInstance | null,
-): void {
-  const resolvedElement =
-    element instanceof HTMLElement
-      ? element
-      : element && '$el' in element && element.$el instanceof HTMLElement
-        ? element.$el
-        : null
-
-  if (resolvedElement instanceof HTMLElement) {
-    forumCardRefs.set(forumId, resolvedElement)
-    resizeObserver?.observe(resolvedElement)
-    return
-  }
-
-  const previousElement = forumCardRefs.get(forumId)
-  if (previousElement) {
-    resizeObserver?.unobserve(previousElement)
-  }
-
-  forumCardRefs.delete(forumId)
-}
-
-function updateForumCardSpan(forumId: number): void {
-  const gridElement = forumsGridRef.value
-  const cardElement = forumCardRefs.get(forumId)
-
-  if (!gridElement || !cardElement) {
-    return
-  }
-
-  const gridStyles = window.getComputedStyle(gridElement)
-  const rowHeight = Number.parseFloat(gridStyles.getPropertyValue('grid-auto-rows'))
-  const rowGap = Number.parseFloat(gridStyles.getPropertyValue('row-gap'))
-
-  if (!Number.isFinite(rowHeight) || rowHeight <= 0 || !Number.isFinite(rowGap)) {
-    return
-  }
-
-  const cardHeight = cardElement.getBoundingClientRect().height
-  const span = Math.max(1, Math.ceil((cardHeight + rowGap) / (rowHeight + rowGap)))
-
-  forumCardSpans.value = {
-    ...forumCardSpans.value,
-    [forumId]: span,
-  }
-}
-
-function updateAllForumCardSpans(): void {
-  nextTick(() => {
-    for (const forum of forums.value) {
-      updateForumCardSpan(forum.id)
-    }
-  })
-}
-
-function getForumCardStyle(forumId: number): Record<string, string> | undefined {
-  const span = forumCardSpans.value[forumId]
-  if (!span) {
-    return undefined
-  }
-
-  return {
-    gridRowEnd: `span ${span}`,
-  }
-}
-
-onMounted(async () => {
-  resizeObserver = new ResizeObserver(() => {
-    updateAllForumCardSpans()
-  })
-
-  if (forumsGridRef.value) {
-    resizeObserver.observe(forumsGridRef.value)
-  }
-
-  await listAllForums()
-  updateAllForumCardSpans()
-})
-
-onBeforeUnmount(() => {
-  resizeObserver?.disconnect()
-  resizeObserver = null
-})
-
-watch(
-  () => forums.value,
-  () => {
-    updateAllForumCardSpans()
-  },
-)
+void listAllForums()
 </script>
 
 <template>
@@ -372,17 +273,15 @@ watch(
     <p v-if="isLoadingForums" class="text-text-color-54">Carregando foruns...</p>
     <p v-else-if="forumsErrorMessage" class="text-red-600">{{ forumsErrorMessage }}</p>
 
-    <div ref="forumsGridRef" v-else-if="forums.length" class="grid grid-cols-1 items-start gap-4 lg:auto-rows-[6px] lg:grid-cols-3 lg:grid-flow-dense">
+    <div v-else-if="forums.length" class="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4">
       <article
         v-for="forum in forums"
         :key="forum.id"
-        :ref="(element) => setForumCardRef(forum.id, element)"
         :class="[
           'relative rounded-xl bg-background-color p-5 shadow-md cursor-pointer transition-colors hover:bg-white/50',
           forum.hasUnreadPrivateMessages ? 'border-2 border-secondary-dark-color' : 'border border-border',
-            forum.messagesCount >= 10 ? 'lg:col-span-2' : 'lg:col-span-1',
+          forum.messagesCount > 10 ? 'sm:col-span-2' : 'xl:col-span-1',
         ]"
-        :style="getForumCardStyle(forum.id)"
         @click="openForum(forum.id)"
       >
         <div class="absolute right-2 top-1">
