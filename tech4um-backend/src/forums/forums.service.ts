@@ -107,6 +107,18 @@ export class ForumsService {
 		pageSize: number;
 		total: number;
 	}> {
+		type ListAllForumsRow = {
+			id: string;
+			name: string;
+			description: string | null;
+			creatorName: string;
+			lastCommentAuthorName: string | null;
+			messagesCount: string;
+			participantsCount: string;
+			createdAt: string;
+			hasUnreadPrivateMessages: boolean;
+		};
+
 		const page = Math.max(1, Number(query.page ?? 1));
 		const pageSize = Math.max(1, Math.min(Number(query.pageSize ?? 10), 100));
 		const skip = (page - 1) * pageSize;
@@ -142,6 +154,18 @@ export class ForumsService {
 
 		const total = await baseQuery.clone().distinct(true).getCount();
 
+		const unreadPrivateMessagesExistsSubquery = hasViewer
+			? `(SELECT 1
+				FROM messages pm
+				LEFT JOIN forum_participants fp
+					ON fp."forumId" = f.id
+					AND fp."userId" = :viewerUserId
+				WHERE pm."forumId" = f.id
+					AND pm.is_private = true
+					AND pm."recipientId" = :viewerUserId
+					AND pm."createdAt" > COALESCE(fp."lastReadAt", TO_TIMESTAMP(0)))`
+			: null;
+
 		const rowsQuery = this.applyListForumsOrderBy(
 			baseQuery
 				.clone()
@@ -150,47 +174,38 @@ export class ForumsService {
 				.addSelect('f.description', 'description')
 				.addSelect('c.username', 'creatorName')
 				.addSelect(
-					`(
-						SELECT u.username
-						FROM messages lm
-						JOIN users u ON u.id = lm."authorId"
-						WHERE lm."forumId" = f.id
-						ORDER BY lm."createdAt" DESC, lm.id DESC
-						LIMIT 1
-					)`,
+					(subQuery) =>
+						subQuery
+							.select('u.username')
+							.from('messages', 'lm')
+							.innerJoin('users', 'u', 'u.id = lm."authorId"')
+							.where('lm."forumId" = f.id')
+							.orderBy('lm."createdAt"', 'DESC')
+							.addOrderBy('lm.id', 'DESC')
+							.limit(1),
 					'lastCommentAuthorName',
 				)
 				.addSelect(
-					`(
-						SELECT COUNT(*)
-						FROM messages m
-						WHERE m."forumId" = f.id
-						  AND m.is_private = false
-					)::int`,
+					(subQuery) =>
+						subQuery
+							.select('COUNT(*)::int')
+							.from('messages', 'm')
+							.where('m."forumId" = f.id')
+							.andWhere('m.is_private = false'),
 					'messagesCount',
 				)
 				.addSelect(
-					`(
-						SELECT COUNT(*)
-						FROM forum_participants p
-						WHERE p."forumId" = f.id
-					)::int`,
+					(subQuery) =>
+						subQuery
+							.select('COUNT(*)::int')
+							.from('forum_participants', 'p')
+							.where('p."forumId" = f.id'),
 					'participantsCount',
 				)
 				.addSelect('f.createdAt', 'createdAt')
 				.addSelect(
 					hasViewer
-						? `EXISTS (
-							SELECT 1
-							FROM messages pm
-							LEFT JOIN forum_participants fp
-								ON fp."forumId" = f.id
-								AND fp."userId" = :viewerUserId
-							WHERE pm."forumId" = f.id
-								AND pm.is_private = true
-								AND pm."recipientId" = :viewerUserId
-								AND pm."createdAt" > COALESCE(fp."lastReadAt", TO_TIMESTAMP(0))
-						)`
+						? `EXISTS ${unreadPrivateMessagesExistsSubquery}`
 						: 'false',
 					'hasUnreadPrivateMessages',
 				)
@@ -200,17 +215,7 @@ export class ForumsService {
 			query.sort,
 		);
 
-		const rows = await rowsQuery.getRawMany<{
-			id: string;
-			name: string;
-			description: string | null;
-			creatorName: string;
-			lastCommentAuthorName: string | null;
-			messagesCount: string;
-			participantsCount: string;
-			createdAt: string;
-			hasUnreadPrivateMessages: boolean;
-		}>();
+		const rows = await rowsQuery.getRawMany<ListAllForumsRow>();
 
 		const items: ListForumItemDto[] = rows.map((row) => ({
 			id: Number(row.id),
