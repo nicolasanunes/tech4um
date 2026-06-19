@@ -7,6 +7,13 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { ForumsService } from './forums.service';
@@ -41,6 +48,8 @@ interface SendPrivateMessagePayload {
 export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
+
+  private readonly logger = new Logger(ForumsGateway.name);
 
   private readonly socketUsers = new Map<string, LoginPayloadDto>();
   private readonly socketRoom = new Map<string, number>();
@@ -122,8 +131,11 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       await this.emitOnlineParticipants(forumId);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Falha ao entrar no forum';
+      const message = this.resolveClientErrorMessage(
+        error,
+        'Falha ao entrar no forum',
+        'join_forum',
+      );
       client.emit('chat_error', { message });
     }
   }
@@ -235,8 +247,11 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         .to(this.getForumRoom(forumId))
         .emit('forum_message_created', publicMessage);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Falha ao enviar mensagem';
+      const message = this.resolveClientErrorMessage(
+        error,
+        'Falha ao enviar mensagem',
+        'send_message',
+      );
       client.emit('chat_error', { message });
     }
   }
@@ -385,5 +400,29 @@ export class ForumsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch {
       return false;
     }
+  }
+
+  private resolveClientErrorMessage(
+    error: unknown,
+    fallbackMessage: string,
+    context: string,
+  ): string {
+    const stack = error instanceof Error ? error.stack : undefined;
+    const detail = error instanceof Error ? error.message : `${error}`;
+    this.logger.error(`[${context}] ${detail}`, stack);
+
+    if (error instanceof NotFoundException) {
+      return 'Forum nao encontrado';
+    }
+
+    if (
+      error instanceof BadRequestException ||
+      error instanceof ForbiddenException ||
+      error instanceof UnauthorizedException
+    ) {
+      return 'Nao foi possivel concluir a operacao solicitada';
+    }
+
+    return fallbackMessage;
   }
 } 

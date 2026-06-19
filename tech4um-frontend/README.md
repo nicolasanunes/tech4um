@@ -1,17 +1,22 @@
 # Tech4UM Frontend
 
-Aplicação frontend da plataforma Tech4UM, responsável pela interface de autenticação, navegação entre fóruns, chat em tempo real e interações do usuário.
+Aplicacao Vue da plataforma Tech4UM.
 
-## O que este frontend faz
+## Funcionalidades
 
-- Realiza login e sessão do usuário com cookies httpOnly no backend.
-- Lista, pesquisa e organiza fóruns com interface responsiva.
-- Exibe tela de conversa com mensagens em tempo real via Socket.IO.
-- Permite envio de mensagens públicas e privadas no contexto do fórum.
-- Exibe participantes online e funcionalidades de interação no chat.
-- Gerencia estado global de autenticação com Pinia.
+- Login/sessao baseada em cookies do backend
+- Listagem de foruns com:
+	- pesquisa com debounce enquanto digita
+	- ordenacao por data/popularidade/participantes
+	- cards responsivos por regra de mensagens
+- Chat de forum com:
+	- mensagens publicas/privadas
+	- participantes online
+	- indicativo de digitacao
+	- paginacao reversa de historico
+	- virtualizacao de mensagens
 
-## Tecnologias principais
+## Stack
 
 - Vue 3 + TypeScript
 - Vite
@@ -19,87 +24,85 @@ Aplicação frontend da plataforma Tech4UM, responsável pela interface de auten
 - Pinia
 - Tailwind CSS 4
 - Socket.IO Client
-- Reka UI + utilitários de estilo (CVA, clsx, tailwind-merge)
-- ESLint + Oxlint + Prettier
 
-## Estrutura principal
+## Variaveis de ambiente
 
-- src/views: telas principais (lista de fóruns e chat).
-- src/components: componentes reutilizáveis da interface.
-- src/stores: estado global (autenticação e modais).
-- src/lib: integração HTTP com renovação automática de sessão.
-- src/router: configuração de rotas da aplicação.
-
-## Pré-requisitos
-
-- Node.js 20+
-- npm 10+
-- Backend Tech4UM em execução
-
-## Variáveis de ambiente
-
-Crie um arquivo .env na raiz de tech4um-frontend:
+Arquivo .env no frontend (execucao local):
 
 ```env
 VITE_API_URL=http://localhost:3000
 ```
 
-Observação:
-- Em rede local (LAN), use o IP do backend, por exemplo: VITE_API_URL=http://192.168.1.20:3000
+No Docker de producao (compose da raiz), `VITE_API_URL` e injetada no build via build arg usando o `.env` da raiz.
 
-## Como rodar localmente
-
-### 1) Instale as dependências
+## Rodar localmente (desenvolvimento)
 
 ```bash
 npm install
+npm run dev -- --host
 ```
 
-### 2) Configure o ambiente
+Frontend em:
 
-Crie o arquivo .env com VITE_API_URL apontando para o backend.
+- http://localhost:5173
 
-### 3) Inicie em modo desenvolvimento
+## Rodar com Docker (producao-like)
+
+O frontend e buildado e servido por Nginx (estatico).
+
+O Nginx esta configurado para SPA com fallback de rota:
+
+- `try_files $uri $uri/ /index.html`
+
+Isso evita 404 ao abrir rotas como `/forums` diretamente no browser.
+
+Na raiz do monorepo:
+
+```bash
+docker compose up -d --build tech4um-frontend
+```
+
+Acesso:
+
+- http://localhost:5173
+
+## Scripts
 
 ```bash
 npm run dev
-```
-
-Servidor padrão: http://localhost:5173
-
-## Scripts úteis
-
-```bash
-# desenvolvimento
-npm run dev
-
-# build de produção (type-check + bundle)
 npm run build
-
-# apenas build
 npm run build-only
-
-# preview do build
 npm run preview
 
-# type-check
 npm run type-check
-
-# lint completo
 npm run lint
-
-# lint com oxlint
 npm run lint:oxlint
-
-# lint com eslint
 npm run lint:eslint
-
-# formatação
 npm run format
 ```
 
-## Integração com backend
+## Integracao com backend
 
-- O frontend envia requisições com credentials include para suportar cookies de sessão.
-- O backend deve estar com CORS habilitado para o host do frontend.
-- Para acesso via IP da rede local, ajuste VITE_API_URL para o endereço correto do backend.
+- Requests usam credentials include
+- Socket.IO usa withCredentials
+- Backend deve aceitar CORS do host frontend
+
+## Notas de UI implementadas recentemente
+
+- Pesquisa de foruns corrige debounce para disparar durante digitacao
+- Grid de foruns em 4 colunas no desktop:
+	- < 10 mensagens: 1/4
+	- > 10 mensagens: 2/4
+- Chat com alinhamento de mensagem propria a direita e largura fixa de 80%
+
+## Troubleshooting
+
+- Frontend sem falar com backend:
+	- validar VITE_API_URL
+	- validar backend em execucao
+- Em Docker, valor de VITE_API_URL errado no bundle:
+	- rebuildar imagem frontend com no-cache
+	- comando sugerido: `docker compose build --no-cache tech4um-frontend`
+- Rota `/forums` retornando 404 no Nginx:
+	- validar se `nginx/default.conf` foi copiado na imagem
+	- rebuildar frontend e subir novamente

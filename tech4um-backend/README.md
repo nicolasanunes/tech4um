@@ -1,167 +1,166 @@
 # Tech4UM Backend
 
-API backend da plataforma Tech4UM, responsável por autenticação, gestão de usuários, fóruns, mensagens e comunicação em tempo real.
+API NestJS da plataforma Tech4UM.
 
-## O que este backend faz
+## Responsabilidades
 
-- Cria e autentica usuários com JWT em cookies httpOnly.
-- Expõe endpoints para criação e leitura de fóruns.
-- Permite atualização de avatar do usuário autenticado.
-- Gerencia mensagens públicas e privadas dentro dos fóruns.
-- Entrega chat em tempo real com Socket.IO (namespace chat).
-- Retorna respostas padronizadas (success/error) com interceptor e filter globais.
-- Aplica validação global de payloads com ValidationPipe.
-- Aplica proteção de taxa (throttling) para endpoints sensíveis.
+- Autenticacao via JWT (cookies httpOnly)
+- Cadastro e leitura de usuarios
+- Criacao/listagem de foruns
+- Chat em tempo real (Socket.IO)
+- Mensagens publicas e privadas
+- Upload de imagem para chat
 
-## Tecnologias principais
+## Stack
 
-- Node.js + TypeScript
 - NestJS
 - TypeORM
 - PostgreSQL
 - Socket.IO
-- JWT
-- class-validator + class-transformer
-- cookie-parser
-- Helmet
-- Jest (testes)
+- class-validator / class-transformer
+- Jest
 
-## Estrutura de módulos
+## Estrutura de modulos
 
-- auth: login, logout, refresh e sessão atual.
-- users: cadastro e atualização de avatar.
-- forums: criação/listagem de fóruns e gateway de chat.
-- messages: módulo de mensagens (suporte às entidades/fluxo de chat).
-- common: interceptor de resposta e filtro de exceções HTTP.
+- auth
+- users
+- forums
+- messages
+- common (interceptor/filter/decorators)
 
-## Pré-requisitos
+## Banco de dados e migrations
 
-- Node.js 20+
-- npm 10+
-- PostgreSQL em execução
+Estado atual:
 
-## Banco de dados
+- synchronize: false (sempre)
+- schema controlado por migrations manuais
+- migration inicial ja criada em src/database/migrations
 
-O backend utiliza PostgreSQL com TypeORM.
-
-### Configuração esperada
-
-As variáveis de conexão são:
-
-- DB_HOST
-- DB_PORT
-- DB_USERNAME
-- DB_PASSWORD
-- DB_DATABASE
-- DB_SSL
-
-Em ambiente local, o projeto está preparado para usar DB_SSL=false.
-
-### Como subir o banco localmente
-
-Opção 1: usando PostgreSQL já instalado na máquina.
-
-1. Crie o banco:
-
-	createdb tech4um
-
-2. Garanta que o usuário e senha configurados no .env tenham acesso ao banco.
-
-Opção 2: usando Docker.
-
-1. Suba um container PostgreSQL:
-
-	docker run --name tech4um-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=tech4um -p 5432:5432 -d postgres:16
-
-2. Mantenha o .env alinhado com os mesmos valores.
-
-### Sincronização do schema
-
-- TYPEORM_SYNCHRONIZE=true: recomendado apenas para desenvolvimento local.
-- TYPEORM_SYNCHRONIZE=false: recomendado para produção.
-
-Quando TYPEORM_SYNCHRONIZE=true, o TypeORM cria/ajusta tabelas automaticamente com base nas entidades.
-
-## Como rodar localmente
-
-### 1) Instale as dependências
+Comandos:
 
 ```bash
-npm install
+# usar CLI TypeORM com datasource local
+npm run typeorm
+
+# criar migration vazia
+npm run migration:create
+
+# gerar migration por diff de entidades
+npm run migration:generate
+
+# aplicar migrations pendentes
+npm run migration:run
+
+# reverter ultima migration
+npm run migration:revert
 ```
 
-### 2) Configure as variáveis de ambiente
+Observacao:
 
-Crie um arquivo .env na raiz de tech4um-backend com os valores abaixo:
+- As migrations do TypeORM nao rodam automaticamente no startup do container em producao.
+- Isso e intencional para que voce tenha liberdade de decidir quando e quais migrations executar em cada ambiente.
+
+Execucao manual recomendada:
+
+```bash
+# local
+npm run migration:run
+
+# docker compose (na raiz do monorepo)
+docker compose exec tech4um-backend npm run migration:run
+```
+
+## Variaveis de ambiente
+
+Exemplo minimo:
 
 ```env
 NODE_ENV=development
 PORT=3000
 
-# Frontend permitido no CORS (opcional)
+JWT_SECRET=change-this-secret
 FRONTEND_URL=http://localhost:5173
 
-# JWT
-JWT_SECRET=change-this-secret
-
-# PostgreSQL
 DB_HOST=localhost
 DB_PORT=5432
 DB_USERNAME=postgres
 DB_PASSWORD=postgres
 DB_DATABASE=tech4um
-
-# TypeORM
-TYPEORM_SYNCHRONIZE=true
-TYPEORM_LOGGING=false
 DB_SSL=false
+
+TYPEORM_LOGGING=false
+
+# AWS (obrigatorio para fluxo de upload)
+AWS_REGION=sa-east-1
+AWS_S3_BUCKET=your-bucket
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret
 ```
 
-Observação: em produção, use TYPEORM_SYNCHRONIZE=false.
+Observacoes:
 
-### 3) Inicie em modo desenvolvimento
+- A API carrega env via `ConfigModule.forRoot` com:
+	- `../.env` (raiz)
+	- `.env` (tech4um-backend/.env)
+- Em producao (container), o backend escuta em `0.0.0.0`.
+- Em desenvolvimento local, escuta em `127.0.0.1`.
+
+## Rodar localmente
 
 ```bash
+npm install
+npm run migration:run
 npm run start:dev
 ```
 
-Servidor padrão: http://localhost:3000
+API em:
 
-## Scripts úteis
+- http://localhost:3000
+
+## Rodar com Docker (via raiz)
+
+O compose da raiz sobe backend em modo producao (codigo compilado em dist).
+
+Na raiz do monorepo:
 
 ```bash
-# build
+docker compose up -d --build tech4um-backend tech4um-db
+```
+
+O servico `tech4um-backend` no compose carrega:
+
+- `.env` (raiz)
+- `tech4um-backend/.env`
+
+## Scripts principais
+
+```bash
 npm run build
-
-# start normal
 npm run start
-
-# start produção
+npm run start:dev
 npm run start:prod
 
-# lint
 npm run lint
-
-# testes unitários
 npm run test
-
-# testes e2e
 npm run test:e2e
-
-# cobertura
 npm run test:cov
 ```
 
-## Testes
+## Boas praticas implementadas
 
-Para rodar testes de forma sequencial (útil para debug):
+- Erros de gateway do chat mapeados para mensagens seguras ao cliente
+- Logs internos preservam detalhes tecnicos
+- Nenhum synchronize automatico em banco compartilhado
 
-```bash
-npm test -- --runInBand
-```
+## Troubleshooting
 
-## Integração com frontend
-
-- O frontend usa cookies com credenciais.
-- Certifique-se de manter withCredentials no cliente HTTP/Socket.
-- Se estiver acessando por IP da rede local, ajuste FRONTEND_URL conforme necessário.
+- Falha de conexao com DB:
+	- validar DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_DATABASE
+	- em Docker Compose usar DB_HOST=tech4um-db
+- Erro `AWS_REGION is required` no container:
+	- validar `tech4um-backend/.env`
+	- validar `docker-compose.yaml` com `env_file` incluindo `./tech4um-backend/.env`
+- Erro de token/JWT:
+	- validar JWT_SECRET no .env
+- Banco vazio apos reset:
+	- executar npm run migration:run antes de subir a API

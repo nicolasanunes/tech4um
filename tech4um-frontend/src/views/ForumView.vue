@@ -1115,7 +1115,7 @@ onBeforeUnmount(() => {
 						</span>
 					</li>
 				</ul>
-				<p v-if="!onlineParticipants.length" class="mt-4 text-sm text-text-color-54">
+				<p v-if="!onlineParticipants.length" class="ml-4 text-sm text-text-color-54">
 					Ninguem online no momento.
 				</p>
 			</aside>

@@ -3,12 +3,15 @@ services:
   tech4um-frontend:
     build:
       context: ./tech4um-frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
     container_name: tech4um-frontend
-    volumes:
-      - ./tech4um-frontend:/app
-      - /app/node_modules
+    env_file:
+      - .env
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - tech4um-backend
 
@@ -16,13 +19,13 @@ services:
     build:
       context: ./tech4um-backend
     container_name: tech4um-backend
-    volumes:
-      - ./tech4um-backend:/app
-      - /app/node_modules
     ports:
       - "3000:3000"
+    environment:
+      NODE_ENV: production
     env_file:
       - .env
+      - ./tech4um-backend/.env
     depends_on:
       tech4um-db:
         condition: service_healthy

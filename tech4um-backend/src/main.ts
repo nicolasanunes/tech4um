@@ -30,7 +30,10 @@ async function bootstrap() {
 
   app.useGlobalInterceptors(new ResponseInterceptor(app.get(Reflector)));
   app.useGlobalFilters(new HttpExceptionFilter());
- 
-  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+
+  const port = Number(process.env.PORT ?? 3000);
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+
+  await app.listen(port, host);
 }
 bootstrap(); 
